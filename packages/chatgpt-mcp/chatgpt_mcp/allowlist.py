@@ -46,6 +46,44 @@ READ_MANY_SCHEMA: dict[str, Any] = {
     "required": ["paths"],
 }
 
+ROUTE_PREVIEW_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "prompt": {
+            "type": "string",
+            "minLength": 1,
+        },
+    },
+    "required": ["prompt"],
+}
+
+FAST_CONTEXT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "prompt": {
+            "type": "string",
+            "minLength": 1,
+        },
+        "max_files": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "default": 6,
+        },
+        "lines_per_file": {
+            "type": "integer",
+            "minimum": 20,
+            "maximum": 400,
+            "default": 160,
+        },
+        "include_lsp": {
+            "type": "boolean",
+            "default": True,
+        },
+    },
+    "required": ["prompt"],
+}
+
 APPLY_CHANGES_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -112,13 +150,61 @@ BATCH_SPECS: tuple[ToolSpec, ...] = (
     ),
 )
 
+ROUTE_SPECS: tuple[ToolSpec, ...] = (
+    ToolSpec(
+        "route_preview",
+        None,
+        True,
+        description="Preview the zero-LLM OpenGPT route selected for a coding prompt. Does not access files.",
+        schema=ROUTE_PREVIEW_SCHEMA,
+    ),
+    ToolSpec(
+        "fast_context",
+        None,
+        True,
+        description=(
+            "Explore a coding question in one call using deterministic OpenHarness "
+            "search/read/LSP recipes. Prefer this for repository discovery before making edits."
+        ),
+        schema=FAST_CONTEXT_SCHEMA,
+    ),
+)
+
 SPECS: tuple[ToolSpec, ...] = (
     *(spec for spec in OH_SPECS if spec.read_only),
     BATCH_SPECS[0],
+    *ROUTE_SPECS,
     *(spec for spec in OH_SPECS if not spec.read_only and spec.name != "bash"),
     BATCH_SPECS[1],
     next(spec for spec in OH_SPECS if spec.name == "bash"),
 )
+
+
+def routing_tool_entries() -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    for spec in specs_for_mode("read"):
+        if spec.factory is not None:
+            tool = spec.factory()
+            schema = tool.input_model.model_json_schema()
+            description = tool.description
+        else:
+            schema = spec.schema or {}
+            description = spec.description or spec.name
+        required_args = sorted(schema.get("required", []))
+        optional_args = sorted(
+            key
+            for key in schema.get("properties", {})
+            if key not in required_args
+        )
+        entries.append(
+            {
+                "name": spec.name,
+                "description": description,
+                "required_args": required_args,
+                "optional_args": optional_args,
+            }
+        )
+    return entries
 
 
 def names_for_mode(mode: str) -> tuple[str, ...]:
