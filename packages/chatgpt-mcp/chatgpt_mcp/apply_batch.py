@@ -40,7 +40,9 @@ def apply_change_list(
             rel = jailed.resolve().relative_to(jail_root)
         except ValueError:
             return ToolResult(output=f"change {index}: denied", is_error=True)
-        dest = write_root / rel
+        dest, dest_reason = _contained_dest(write_root, rel)
+        if dest is None:
+            return ToolResult(output=f"change {index}: {dest_reason}", is_error=True)
         if op == "write":
             if "content" not in change:
                 return ToolResult(output=f"change {index}: write requires content", is_error=True)
@@ -72,7 +74,19 @@ def apply_change_list(
 
     written: list[str] = []
     for path in order:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(staged[path], encoding="utf-8")
-        written.append(path.resolve().relative_to(write_root).as_posix())
+        dest, dest_reason = _contained_dest(write_root, path.relative_to(write_root))
+        if dest is None:
+            return ToolResult(output=dest_reason or "denied", is_error=True)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(staged[path], encoding="utf-8")
+        written.append(path.relative_to(write_root).as_posix())
     return ToolResult(output="applied:\n" + "\n".join(written))
+
+
+def _contained_dest(write_root: Path, rel: Path) -> tuple[Path | None, str | None]:
+    dest = write_root / rel
+    try:
+        dest.resolve().relative_to(write_root)
+    except ValueError:
+        return None, "path escapes write root via symlink"
+    return dest, None

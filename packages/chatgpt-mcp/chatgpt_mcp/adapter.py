@@ -87,7 +87,7 @@ class ToolAdapter:
             elif name == "apply_changes":
                 result = await self._apply_changes(arguments)
             elif name == "verify_project":
-                result = self._verify_project.run(self.approved_root)
+                result = await self._verify_project.run(self.approved_root)
             elif name == "isolated_change":
                 result = await self._isolated_change.run(
                     arguments.get("changes"),

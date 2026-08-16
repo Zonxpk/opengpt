@@ -216,6 +216,7 @@ ISOLATED_CHANGE_SPEC = ToolSpec(
     description=(
         "Apply up to 20 writes/edits in a git worktree, run verify_project there, "
         "and return diff + verification. The approved root is not modified. "
+        "Requires a clean git working tree (commit/stash first, or use apply_changes). "
         "The worktree is kept for ChatGPT to inspect or discard."
     ),
     schema=ISOLATED_CHANGE_SCHEMA,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import time
 from pathlib import Path
@@ -28,6 +29,16 @@ class IsolatedChangeService:
         self._sensitive = sensitive
 
     async def run(self, changes: object, *, slug: str | None = None) -> ToolResult:
+        dirty = await asyncio.to_thread(_git_porcelain, self.approved_root)
+        if dirty:
+            return ToolResult(
+                output=(
+                    "approved root has uncommitted tracked changes; isolated_change verifies against HEAD. "
+                    "Commit or stash first, or use apply_changes on the current tree."
+                ),
+                is_error=True,
+            )
+
         manager = WorktreeManager(base_dir=self.worktree_base)
         slug = (slug or f"opengpt-{int(time.time())}").strip()
         try:
@@ -45,8 +56,8 @@ class IsolatedChangeService:
             await manager.remove_worktree(slug)
             return applied
 
-        verification = self._verify.run(info.path)
-        diff = _git_diff(info.path)
+        verification = await self._verify.run(info.path)
+        diff = await asyncio.to_thread(_git_diff, info.path)
         kept = "true"
         lines = [
             "# Isolated change",
@@ -67,6 +78,17 @@ class IsolatedChangeService:
             output="\n".join(lines).strip() + "\n",
             is_error=verification.is_error,
         )
+
+
+def _git_porcelain(cwd: Path) -> str:
+    completed = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return (completed.stdout or "").strip()
 
 
 def _git_diff(cwd: Path) -> str:

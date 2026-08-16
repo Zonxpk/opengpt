@@ -24,7 +24,7 @@ Prefer `fast_context` for exploratory questions, then `read_many` and `apply_cha
 
 v2 optimizes ChatGPT ↔ MCP round-trips, not Python function-call latency. Typical exploration: v1 used 3–6 tool turns; v2 uses 1 `fast_context` turn plus ChatGPT's semantic decision. Do not treat that as a fixed wall-clock speedup until measured in ChatGPT Web.
 
-The router does not understand code semantically. It uses OpenHarness's local dry-run candidate scoring plus small deterministic intent rules. ChatGPT remains responsible for semantic decisions. `fast_context` is read-only. On a strong skill-name match it may prepend bundled/project skill text. Heuristic project memory is appended after repo evidence and must not override it. Direct write tools remain write-mode-only.
+The router does not understand code semantically. It uses OpenHarness's local dry-run candidate scoring plus small deterministic intent rules. ChatGPT remains responsible for semantic decisions. `fast_context` is read-only. On a strong skill-name match it may prepend bundled/project skill text. **Trust model:** checked-in project skills are treated as trusted workspace instructions, not untrusted third-party content. Do not point `--root` at an untrusted repo if those skills should be ignored. Heuristic project memory is appended after repo evidence and must not override it. Direct write tools remain write-mode-only. `isolated_change` requires a clean git working tree and writes only inside the worktree (shared-dir symlinks such as `.venv` / `node_modules` are rejected as write targets).
 
 ```
 ChatGPT

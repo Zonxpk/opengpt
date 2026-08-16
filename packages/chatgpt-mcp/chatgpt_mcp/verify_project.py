@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from openharness.tools.base import ToolResult
@@ -12,9 +13,9 @@ from chatgpt_mcp.verification import (
 
 
 class VerifyProjectService:
-    def run(self, cwd: Path) -> ToolResult:
+    async def run(self, cwd: Path) -> ToolResult:
         policy = load_verification_policy(cwd)
-        steps = run_verification({"verification": policy}, cwd=cwd)
+        steps = await asyncio.to_thread(run_verification, {"verification": policy}, cwd=cwd)
         report = format_verification_report(steps, title=cwd.name)
         failing = [step for step in steps if step.status in {"failed", "error"}]
         return ToolResult(output=report, is_error=bool(failing))

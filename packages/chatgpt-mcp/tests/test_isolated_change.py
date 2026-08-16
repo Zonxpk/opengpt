@@ -42,11 +42,10 @@ async def test_isolated_change_does_not_touch_main_tree(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        VerifyProjectService,
-        "run",
-        lambda self, cwd: ToolResult(output=f"verified:{cwd.name}", is_error=False),
-    )
+    async def fake_run(self, cwd):
+        return ToolResult(output=f"verified:{cwd.name}", is_error=False)
+
+    monkeypatch.setattr(VerifyProjectService, "run", fake_run)
     service = IsolatedChangeService(
         approved_root=repo,
         worktree_base=tmp_path / "wt",
@@ -68,11 +67,10 @@ async def test_isolated_change_keeps_worktree_on_verify_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        VerifyProjectService,
-        "run",
-        lambda self, cwd: ToolResult(output="boom", is_error=True),
-    )
+    async def fake_run(self, cwd):
+        return ToolResult(output="boom", is_error=True)
+
+    monkeypatch.setattr(VerifyProjectService, "run", fake_run)
     service = IsolatedChangeService(approved_root=repo, worktree_base=tmp_path / "wt")
     result = await service.run(
         [{"op": "write", "path": "hello.txt", "content": "x\n"}],
@@ -89,3 +87,45 @@ async def test_isolated_change_is_write_only(tmp_path: Path) -> None:
     denied = await adapter.call("isolated_change", {"changes": [{"op": "write", "path": "a", "content": "x"}]})
     assert denied.is_error
     assert "not available" in denied.output
+
+
+@pytest.mark.asyncio
+async def test_isolated_change_rejects_dirty_root(
+    repo: Path,
+    tmp_path: Path,
+) -> None:
+    (repo / "hello.txt").write_text("dirty\n", encoding="utf-8")
+    service = IsolatedChangeService(approved_root=repo, worktree_base=tmp_path / "wt")
+    result = await service.run(
+        [{"op": "write", "path": "hello.txt", "content": "x\n"}],
+        slug="dirty",
+    )
+    assert result.is_error
+    assert "uncommitted" in result.output
+    assert not (tmp_path / "wt" / "dirty").exists()
+    assert (repo / "hello.txt").read_text(encoding="utf-8") == "dirty\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shared", [".venv", "node_modules"])
+async def test_isolated_change_does_not_follow_shared_symlinks(
+    repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    shared: str,
+) -> None:
+    async def fake_run(self, cwd):
+        return ToolResult(output="ok", is_error=False)
+
+    monkeypatch.setattr(VerifyProjectService, "run", fake_run)
+    (repo / shared).mkdir()
+    (repo / shared / "keep.txt").write_text("keep\n", encoding="utf-8")
+    service = IsolatedChangeService(approved_root=repo, worktree_base=tmp_path / "wt")
+    result = await service.run(
+        [{"op": "write", "path": f"{shared}/foo", "content": "pwned\n"}],
+        slug=f"escape-{shared.strip('.')}",
+    )
+    assert result.is_error
+    assert "escapes write root" in result.output
+    assert not (repo / shared / "foo").exists()
+    assert (repo / shared / "keep.txt").read_text(encoding="utf-8") == "keep\n"
