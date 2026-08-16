@@ -10,6 +10,8 @@ from chatgpt_mcp.adapter import ToolAdapter
 from chatgpt_mcp.allowlist import SKIPPED, names_for_mode
 from chatgpt_mcp.connect import main
 from chatgpt_mcp.server import create_app
+from chatgpt_mcp.spill import MAX_BYTES, SPILL_DIR, maybe_spill
+from openharness.tools.base import ToolResult
 
 
 @pytest.fixture
@@ -89,22 +91,52 @@ def test_connect_cli_nonzero_when_tunnel_fails(tmp_path: Path, monkeypatch: pyte
 def test_tools_list_profile(workspace: Path) -> None:
     read = names_for_mode("read")
     write = names_for_mode("write")
-    assert "read_file" in read and "read_many" in read and "glob" in read
-    assert "write_file" not in read and "apply_changes" not in read
-    assert write[-1] == "bash"
-    assert "notebook_edit" in write and "web_search" in write and "apply_changes" in write
-    for name in SKIPPED:
+    assert read == ("read_file", "glob", "grep", "lsp", "read_many")
+    assert write == (
+        "read_file",
+        "glob",
+        "grep",
+        "lsp",
+        "read_many",
+        "write_file",
+        "edit_file",
+        "apply_changes",
+        "bash",
+    )
+    for name in (*SKIPPED, "cron_list", "task_create", "web_search", "notebook_edit"):
         assert name not in write
 
 
 @pytest.mark.asyncio
-async def test_task_create_local_agent_denied(workspace: Path) -> None:
+async def test_hidden_tools_are_unavailable(workspace: Path) -> None:
     adapter = ToolAdapter(approved_root=workspace, mode="write")
     result = await adapter.call(
         "task_create",
         {"type": "local_agent", "description": "x", "prompt": "hi"},
     )
     assert result.is_error
+    assert "not available" in result.output
+
+
+def test_spill_keeps_small_output(workspace: Path) -> None:
+    result = maybe_spill(
+        root=workspace,
+        tool="bash",
+        result=ToolResult(output="hi\n"),
+    )
+    assert result.output == "hi\n"
+    assert not (workspace / SPILL_DIR).exists()
+
+
+def test_spill_writes_full_text_and_preview(workspace: Path) -> None:
+    huge = ("x" * 80 + "\n") * 3000
+    result = maybe_spill(root=workspace, tool="bash", result=ToolResult(output=huge))
+    assert result.output != huge
+    assert len(result.output.encode("utf-8")) <= MAX_BYTES
+    assert SPILL_DIR in result.output
+    spilled = list((workspace / SPILL_DIR).glob("bash-*.txt"))
+    assert len(spilled) == 1
+    assert spilled[0].read_text(encoding="utf-8") == huge
 
 
 @pytest.mark.asyncio
@@ -139,6 +171,18 @@ async def test_read_many_and_apply_changes(workspace: Path) -> None:
     )
     assert failed.is_error
     assert (workspace / "b.txt").read_text(encoding="utf-8") == before
+
+
+@pytest.mark.asyncio
+async def test_bash_spill_on_huge_output(workspace: Path) -> None:
+    (workspace / "huge.txt").write_text("x" * 60_000, encoding="utf-8")
+    adapter = ToolAdapter(approved_root=workspace, mode="write")
+    result = await adapter.call("bash", {"command": "cat huge.txt"})
+    assert not result.is_error, result.output
+    assert SPILL_DIR in result.output
+    spilled = list((workspace / SPILL_DIR).glob("bash-*.txt"))
+    assert len(spilled) == 1
+    assert "x" * 1000 in spilled[0].read_text(encoding="utf-8")
 
 
 INIT = {

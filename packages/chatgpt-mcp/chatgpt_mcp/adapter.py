@@ -12,6 +12,7 @@ from openharness.utils.shell import create_shell_subprocess
 
 from chatgpt_mcp.allowlist import MAX_BATCH, PATH_ARG_KEYS, names_for_mode, specs_for_mode
 from chatgpt_mcp.jail import jail_path
+from chatgpt_mcp.spill import maybe_spill
 
 _EXPLICIT_SETTINGS = Settings(
     sandbox=SandboxSettings(enabled=False),
@@ -41,9 +42,9 @@ class ToolAdapter:
     def instructions(self) -> str:
         text = (
             f"One approved workspace root: {self.approved_root}. Mode: {self.mode}. "
-            "OpenHarness tools are bridged locally; ChatGPT is the only LLM. "
             "Prefer read_many and apply_changes. Paths jailed to the root. "
-            "bash cwd is the root. task_create local_agent is denied."
+            "bash cwd is the root. Oversized grep/bash/glob output is spilled "
+            f"to {self.approved_root.as_posix()}/.opengpt-spill/; read with offset."
         )
         return text[:512]
 
@@ -52,17 +53,14 @@ class ToolAdapter:
             return ToolResult(output=f"Tool not available in {self.mode} mode: {name}", is_error=True)
         try:
             if name == "bash":
-                return await self._bash(arguments)
-            if name == "read_many":
-                return await self._read_many(arguments)
-            if name == "apply_changes":
-                return await self._apply_changes(arguments)
-            if name == "task_create" and str(arguments.get("type") or "local_bash") == "local_agent":
-                return ToolResult(
-                    output="task_create type=local_agent is denied; ChatGPT is the only LLM. Use local_bash.",
-                    is_error=True,
-                )
-            return await self._openharness(name, arguments)
+                result = await self._bash(arguments)
+            elif name == "read_many":
+                result = await self._read_many(arguments)
+            elif name == "apply_changes":
+                result = await self._apply_changes(arguments)
+            else:
+                result = await self._openharness(name, arguments)
+            return maybe_spill(root=self.approved_root, tool=name, result=result)
         except Exception as exc:
             return ToolResult(output=str(exc), is_error=True)
 

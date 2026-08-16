@@ -12,6 +12,16 @@ Paste the printed `ChatGPT MCP URL` into ChatGPT as a Server URL (Streamable HTT
 
 v1 bash is a host-equivalent shell. Workspace `.env` is readable in read mode unless later deny-listed.
 
+Prefer `read_many` and `apply_changes` (up to 20 files per call). Oversized `grep` / `bash` / `glob` / `lsp` / `read_many` results are written to `--root/.opengpt-spill/` and the model gets a head/tail preview plus that path.
+
+## Tools
+
+Read mode: `read_file`, `glob`, `grep`, `lsp`, `read_many`.
+
+Write mode adds: `write_file`, `edit_file`, `apply_changes`, `bash`.
+
+Not exposed: agent/plan/image/MCP-client tools, cron, tasks, web, worktree, skills, and other OpenHarness extras.
+
 ## How it works
 
 ```
@@ -39,12 +49,10 @@ v1 bash is a host-equivalent shell. Workspace `.env` is readable in read mode un
          ┌──────────────────────────────────────────────┐
          │  ToolAdapter                                 │
          │                                              │
-         │  mode allowlist                              │
-         │  OpenHarness tools bridged 1:1 (minus LLM/TUI)│
-         │  + read_many / apply_changes                  │
-         │                                              │
-         │  read:  inspect / search / web / lsp / …     │
-         │  write: + edit / bash / tasks / cron / …     │
+         │  small allowlist                             │
+         │  OpenHarness: read/grep/glob/lsp/edit/bash   │
+         │  + read_many / apply_changes                 │
+         │  + spill oversized output to .opengpt-spill  │
          │                                              │
          │  path jail (resolve + relative_to root)      │
          │  SENSITIVE_PATH_PATTERNS extra deny          │
@@ -54,8 +62,7 @@ v1 bash is a host-equivalent shell. Workspace `.env` is readable in read mode un
                       ▼
          ┌──────────────────────────────────────────────┐
          │  OpenHarness tool classes (library)          │
-         │  Not exposed: agent, images, config,         │
-         │  plan mode, ask_user, MCP-client tools       │
+         │  Not exposed: agent, cron, tasks, web, …     │
          └────────────┬─────────────────────────────────┘
                       │
                       ▼

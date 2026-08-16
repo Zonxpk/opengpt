@@ -5,36 +5,12 @@ from typing import Any
 
 from mcp_types import ToolAnnotations
 from openharness.tools.bash_tool import BashTool
-from openharness.tools.brief_tool import BriefTool
-from openharness.tools.cron_create_tool import CronCreateTool
-from openharness.tools.cron_delete_tool import CronDeleteTool
-from openharness.tools.cron_list_tool import CronListTool
-from openharness.tools.cron_toggle_tool import CronToggleTool
-from openharness.tools.enter_worktree_tool import EnterWorktreeTool
-from openharness.tools.exit_worktree_tool import ExitWorktreeTool
 from openharness.tools.file_edit_tool import FileEditTool
 from openharness.tools.file_read_tool import FileReadTool
 from openharness.tools.file_write_tool import FileWriteTool
 from openharness.tools.glob_tool import GlobTool
 from openharness.tools.grep_tool import GrepTool
 from openharness.tools.lsp_tool import LspTool
-from openharness.tools.notebook_edit_tool import NotebookEditTool
-from openharness.tools.remote_trigger_tool import RemoteTriggerTool
-from openharness.tools.send_message_tool import SendMessageTool
-from openharness.tools.skill_tool import SkillTool
-from openharness.tools.sleep_tool import SleepTool
-from openharness.tools.task_create_tool import TaskCreateTool
-from openharness.tools.task_get_tool import TaskGetTool
-from openharness.tools.task_list_tool import TaskListTool
-from openharness.tools.task_output_tool import TaskOutputTool
-from openharness.tools.task_stop_tool import TaskStopTool
-from openharness.tools.task_update_tool import TaskUpdateTool
-from openharness.tools.team_create_tool import TeamCreateTool
-from openharness.tools.team_delete_tool import TeamDeleteTool
-from openharness.tools.todo_write_tool import TodoWriteTool
-from openharness.tools.tool_search_tool import ToolSearchTool
-from openharness.tools.web_fetch_tool import WebFetchTool
-from openharness.tools.web_search_tool import WebSearchTool
 
 MAX_BATCH = 20
 
@@ -110,32 +86,8 @@ OH_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("glob", GlobTool, True),
     ToolSpec("grep", GrepTool, True),
     ToolSpec("lsp", LspTool, True),
-    ToolSpec("skill", SkillTool, True),
-    ToolSpec("tool_search", ToolSearchTool, True),
-    ToolSpec("brief", BriefTool, True),
-    ToolSpec("sleep", SleepTool, True),
-    ToolSpec("web_fetch", WebFetchTool, True, open_world=True),
-    ToolSpec("web_search", WebSearchTool, True, open_world=True),
-    ToolSpec("cron_list", CronListTool, True),
-    ToolSpec("task_get", TaskGetTool, True),
-    ToolSpec("task_list", TaskListTool, True),
-    ToolSpec("task_output", TaskOutputTool, True),
     ToolSpec("write_file", FileWriteTool, False),
     ToolSpec("edit_file", FileEditTool, False),
-    ToolSpec("notebook_edit", NotebookEditTool, False),
-    ToolSpec("todo_write", TodoWriteTool, False),
-    ToolSpec("enter_worktree", EnterWorktreeTool, False),
-    ToolSpec("exit_worktree", ExitWorktreeTool, False),
-    ToolSpec("cron_create", CronCreateTool, False),
-    ToolSpec("cron_delete", CronDeleteTool, False),
-    ToolSpec("cron_toggle", CronToggleTool, False),
-    ToolSpec("task_create", TaskCreateTool, False),
-    ToolSpec("task_stop", TaskStopTool, False),
-    ToolSpec("task_update", TaskUpdateTool, False),
-    ToolSpec("remote_trigger", RemoteTriggerTool, False),
-    ToolSpec("send_message", SendMessageTool, False),
-    ToolSpec("team_create", TeamCreateTool, False),
-    ToolSpec("team_delete", TeamDeleteTool, False),
     ToolSpec("bash", BashTool, False),
 )
 
