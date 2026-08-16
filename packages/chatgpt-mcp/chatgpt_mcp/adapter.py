@@ -11,7 +11,11 @@ from openharness.tools.base import ToolExecutionContext, ToolRegistry, ToolResul
 from openharness.utils.shell import create_shell_subprocess
 
 from chatgpt_mcp.allowlist import MAX_BATCH, PATH_ARG_KEYS, names_for_mode, specs_for_mode
+from chatgpt_mcp.apply_batch import apply_change_list
 from chatgpt_mcp.fast_context import FastContextService
+from chatgpt_mcp.isolated_change import IsolatedChangeService
+from chatgpt_mcp.long_task import LongTaskService
+from chatgpt_mcp.verify_project import VerifyProjectService
 from chatgpt_mcp.jail import jail_glob_pattern, jail_path
 from chatgpt_mcp.spill import maybe_spill
 
@@ -40,7 +44,13 @@ class ToolAdapter:
             cwd=self.approved_root,
             metadata={"tool_registry": registry},
         )
-        self._fast_context = FastContextService(self.call)
+        self._fast_context = FastContextService(self.call, cwd=self.approved_root)
+        self._verify_project = VerifyProjectService()
+        self._isolated_change = IsolatedChangeService(
+            approved_root=self.approved_root,
+            sensitive=self._sensitive,
+        )
+        self._long_task = LongTaskService(approved_root=self.approved_root)
 
     def instructions(self) -> str:
         text = (
@@ -48,6 +58,9 @@ class ToolAdapter:
             "Prefer fast_context for exploratory repository questions. "
             "Use primitives when an exact tool call is already known. "
             "Prefer read_many and apply_changes for batching. "
+            "Prefer verify_project for repo checks. "
+            "Prefer isolated_change to edit+verify off the main tree. "
+            "Use long_task for long shell jobs. "
             "File tools are jailed to the root. "
             "bash is a host-equivalent shell (not jailed); cwd is the root. "
             f"Oversized output spills to {self.approved_root.as_posix()}/.opengpt-spill/."
@@ -73,6 +86,15 @@ class ToolAdapter:
                 result = await self._read_many(arguments)
             elif name == "apply_changes":
                 result = await self._apply_changes(arguments)
+            elif name == "verify_project":
+                result = await self._verify_project.run(self.approved_root)
+            elif name == "isolated_change":
+                result = await self._isolated_change.run(
+                    arguments.get("changes"),
+                    slug=str(arguments["slug"]) if arguments.get("slug") else None,
+                )
+            elif name == "long_task":
+                result = await self._long_task.run(arguments)
             else:
                 result = await self._openharness(name, arguments)
             return maybe_spill(root=self.approved_root, tool=name, result=result)
@@ -157,54 +179,12 @@ class ToolAdapter:
         return ToolResult(output="\n\n".join(chunks))
 
     async def _apply_changes(self, arguments: dict[str, Any]) -> ToolResult:
-        changes = arguments.get("changes")
-        if not isinstance(changes, list) or not changes:
-            return ToolResult(output="changes must be a non-empty list", is_error=True)
-        if len(changes) > MAX_BATCH:
-            return ToolResult(output=f"at most {MAX_BATCH} changes per apply_changes", is_error=True)
-        staged: dict[Path, str] = {}
-        order: list[Path] = []
-        for index, change in enumerate(changes):
-            if not isinstance(change, dict):
-                return ToolResult(output=f"change {index} must be an object", is_error=True)
-            op = change.get("op")
-            jailed, reason = await self._gate(str(change.get("path") or ""))
-            if reason or jailed is None:
-                return ToolResult(output=f"change {index}: {reason or 'denied'}", is_error=True)
-            if op == "write":
-                if "content" not in change:
-                    return ToolResult(output=f"change {index}: write requires content", is_error=True)
-                if jailed not in staged:
-                    order.append(jailed)
-                staged[jailed] = str(change["content"])
-            elif op == "edit":
-                old = change.get("old_str")
-                new = change.get("new_str")
-                if not isinstance(old, str) or not isinstance(new, str):
-                    return ToolResult(output=f"change {index}: edit requires old_str and new_str", is_error=True)
-                if jailed in staged:
-                    original = staged[jailed]
-                elif jailed.exists():
-                    original = jailed.read_text(encoding="utf-8")
-                else:
-                    return ToolResult(output=f"change {index}: file not found: {self._rel(jailed)}", is_error=True)
-                if old not in original:
-                    return ToolResult(
-                        output=f"change {index}: old_str was not found in {self._rel(jailed)}",
-                        is_error=True,
-                    )
-                updated = original.replace(old, new) if change.get("replace_all") else original.replace(old, new, 1)
-                if jailed not in staged:
-                    order.append(jailed)
-                staged[jailed] = updated
-            else:
-                return ToolResult(output=f"change {index}: op must be write or edit", is_error=True)
-        written: list[str] = []
-        for path in order:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(staged[path], encoding="utf-8")
-            written.append(self._rel(path))
-        return ToolResult(output="applied:\n" + "\n".join(written))
+        return apply_change_list(
+            arguments.get("changes"),
+            jail_root=self.approved_root,
+            write_root=self.approved_root,
+            sensitive=self._sensitive,
+        )
 
     async def _bash(self, arguments: dict[str, Any]) -> ToolResult:
         requested_cwd = arguments.get("cwd")

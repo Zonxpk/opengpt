@@ -8,6 +8,7 @@ from openharness.tools.base import ToolResult
 
 from chatgpt_mcp.fast_context import FastContextService
 from chatgpt_mcp.routing import decide_route
+from openharness.skills.types import SkillDefinition
 from chatgpt_mcp.spill import MAX_BYTES, SPILL_DIR, maybe_spill
 from test_routing import TEST_TOOL_ENTRIES
 
@@ -126,3 +127,50 @@ async def test_fast_context_large_output_uses_existing_spill(tmp_path: Path) -> 
     assert spilled.output != result.output
     assert len(spilled.output.encode("utf-8")) <= MAX_BYTES
     assert SPILL_DIR in spilled.output
+
+
+@pytest.mark.asyncio
+async def test_fast_context_includes_strong_skill_match() -> None:
+    caller = FakeCaller()
+    skill = SkillDefinition(
+        name="diagnose",
+        description="Diagnose why a run failed",
+        content="Inspect manifests, traces, and verification reports.",
+        source="test",
+    )
+    service = FastContextService(caller, skills=[skill], include_memory=False)
+    result = await service.run("diagnose why this run failed")
+    assert result.output.index("skill hint: diagnose") < result.output.index("src/auth/token.py")
+    assert "Inspect manifests" in result.output
+
+
+@pytest.mark.asyncio
+async def test_fast_context_skips_weak_skill_match() -> None:
+    caller = FakeCaller()
+    skill = SkillDefinition(
+        name="unrelated",
+        description="Something else entirely",
+        content="no overlap",
+        source="test",
+    )
+    service = FastContextService(caller, skills=[skill], include_memory=False)
+    result = await service.run("Find where JWT refresh tokens are validated")
+    assert "skill hint" not in result.output
+
+
+@pytest.mark.asyncio
+async def test_fast_context_appends_memory_after_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openharness.memory.manager import add_memory_entry
+
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    add_memory_entry(repo, "JWT architecture", "We chose JWT refresh tokens for session recovery.")
+    caller = FakeCaller()
+    service = FastContextService(caller, cwd=repo, skills=[], include_memory=True)
+    result = await service.run("Find where JWT refresh tokens are validated")
+    assert result.output.index("src/auth/token.py") < result.output.index("memory (secondary")
+    assert "JWT architecture" in result.output or "session recovery" in result.output

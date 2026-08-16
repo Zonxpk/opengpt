@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
+from pathlib import Path
 import re
 from typing import Any
 
 from openharness.tools.base import ToolResult
 
 from chatgpt_mcp.allowlist import routing_tool_entries
-from chatgpt_mcp.routing import RouteDecision, RouteName, decide_route, _IDENTIFIER
+from chatgpt_mcp.routing import RouteDecision, RouteName, decide_route, recommend_skills, _IDENTIFIER
 
 PrimitiveCaller = Callable[[str, dict[str, Any]], Awaitable[ToolResult]]
 
@@ -61,6 +62,11 @@ def _paths_from_lsp(output: str) -> list[str]:
     return paths
 
 
+_SKILL_MIN_SCORE = 8
+_SKILL_CONTENT_CHARS = 3500
+_MEMORY_CHARS = 1500
+
+
 def _header(decision: RouteDecision, file_count: int) -> str:
     terms = ", ".join(decision.search_terms) or "(none)"
     return (
@@ -72,8 +78,18 @@ def _header(decision: RouteDecision, file_count: int) -> str:
 
 
 class FastContextService:
-    def __init__(self, call_primitive: PrimitiveCaller) -> None:
+    def __init__(
+        self,
+        call_primitive: PrimitiveCaller,
+        *,
+        cwd: Path | None = None,
+        skills: Sequence[object] | None = None,
+        include_memory: bool = True,
+    ) -> None:
         self._call = call_primitive
+        self._cwd = cwd
+        self._skills = skills
+        self._include_memory = include_memory
 
     def preview(self, prompt: str) -> RouteDecision:
         return decide_route(prompt, tool_entries=routing_tool_entries())
@@ -90,10 +106,14 @@ class FastContextService:
         lines_per_file = min(max(lines_per_file, 20), 400)
         decision = self.preview(prompt)
         if decision.route == RouteName.SYMBOL and include_lsp:
-            return await self._symbol(prompt, decision, max_files, lines_per_file)
-        if decision.route == RouteName.SEARCH:
-            return await self._search(prompt, decision)
-        return await self._search_and_inspect(prompt, decision, max_files, lines_per_file)
+            repo = await self._symbol(prompt, decision, max_files, lines_per_file)
+        elif decision.route == RouteName.SEARCH:
+            repo = await self._search(prompt, decision)
+        else:
+            repo = await self._search_and_inspect(prompt, decision, max_files, lines_per_file)
+        if repo.is_error:
+            return repo
+        return ToolResult(output=self._with_extras(prompt, repo.output))
 
     async def _grep(self, prompt: str, decision: RouteDecision) -> ToolResult:
         return await self._call(
@@ -170,4 +190,71 @@ class FastContextService:
             return read
         return ToolResult(
             output=f"{_header(decision, len(paths))}\n{lsp.output}\n\n{read.output}"
+        )
+
+    def _with_extras(self, prompt: str, repo_output: str) -> str:
+        chunks: list[str] = []
+        skill = self._skill_block(prompt)
+        if skill:
+            chunks.append(skill)
+        chunks.append(repo_output.rstrip())
+        memory = self._memory_block(prompt)
+        if memory:
+            chunks.append(memory)
+        return "\n\n".join(chunks) + "\n"
+
+    def _usable_skills(self) -> list[object]:
+        if self._skills is not None:
+            return [
+                skill
+                for skill in self._skills
+                if not getattr(skill, "disable_model_invocation", False)
+            ]
+        if self._cwd is None:
+            return []
+        from openharness.skills.bundled import get_bundled_skills
+        from openharness.skills.loader import discover_project_skill_dirs, load_skills_from_dirs
+
+        skills: list[object] = [
+            skill for skill in get_bundled_skills() if not skill.disable_model_invocation
+        ]
+        skills.extend(
+            load_skills_from_dirs(
+                discover_project_skill_dirs(self._cwd),
+                source="project",
+                create_missing=False,
+            )
+        )
+        return skills
+
+    def _skill_block(self, prompt: str) -> str:
+        skills = self._usable_skills()
+        if not skills:
+            return ""
+        matches = recommend_skills(prompt, skills)
+        if not matches or matches[0].score < _SKILL_MIN_SCORE:
+            return ""
+        top = matches[0]
+        skill = next((item for item in skills if getattr(item, "name", "") == top.name), None)
+        if skill is None:
+            return ""
+        content = str(getattr(skill, "content", "")).strip()[:_SKILL_CONTENT_CHARS]
+        return (
+            f"## skill hint: {top.name} (score {top.score})\n"
+            "Follow these instructions while using the repository evidence below.\n\n"
+            f"{content}"
+        )
+
+    def _memory_block(self, prompt: str) -> str:
+        if not self._include_memory or self._cwd is None:
+            return ""
+        from openharness.memory.relevance import format_relevant_memories, select_relevant_memories
+
+        selected = select_relevant_memories(prompt, self._cwd, max_results=3, selector=None)
+        if not selected:
+            return ""
+        rendered = format_relevant_memories(selected, max_chars=_MEMORY_CHARS).strip()
+        return (
+            "## memory (secondary; current repository evidence above wins)\n"
+            f"{rendered}"
         )

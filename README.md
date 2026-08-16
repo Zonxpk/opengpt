@@ -12,7 +12,7 @@ Clone:
 git clone --recurse-submodules <this-repo>
 ```
 
-OpenHarness is the `upstreams/openharness` submodule (`https://github.com/HKUDS/OpenHarness.git`, pinned SHA).
+OpenHarness is the `upstreams/openharness` submodule (`https://github.com/HKUDS/OpenHarness.git`, pinned SHA). See `AGENTS.md` (*wrap*): OpenGPT adapters live in `packages/chatgpt-mcp`.
 
 Paste the printed `ChatGPT MCP URL` into ChatGPT as a Server URL (Streamable HTTP, auth none).
 
@@ -24,7 +24,7 @@ Prefer `fast_context` for exploratory questions, then `read_many` and `apply_cha
 
 v2 optimizes ChatGPT ↔ MCP round-trips, not Python function-call latency. Typical exploration: v1 used 3–6 tool turns; v2 uses 1 `fast_context` turn plus ChatGPT's semantic decision. Do not treat that as a fixed wall-clock speedup until measured in ChatGPT Web.
 
-The router does not understand code semantically. It uses OpenHarness's local dry-run candidate scoring plus small deterministic intent rules. ChatGPT remains responsible for semantic decisions. `fast_context` is read-only. Direct write tools remain write-mode-only.
+The router does not understand code semantically. It uses OpenHarness's local dry-run candidate scoring plus small deterministic intent rules. ChatGPT remains responsible for semantic decisions. `fast_context` is read-only. On a strong skill-name match it may prepend bundled/project skill text. **Trust model:** checked-in project skills are treated as trusted workspace instructions, not untrusted third-party content. Do not point `--root` at an untrusted repo if those skills should be ignored. Heuristic project memory is appended after repo evidence and must not override it. Direct write tools remain write-mode-only. `isolated_change` requires a clean git working tree and writes only inside the worktree (shared-dir symlinks such as `.venv` / `node_modules` are rejected as write targets).
 
 ```
 ChatGPT
@@ -50,18 +50,21 @@ Exploring an unfamiliar code area:  fast_context
 Exact known search:                 grep
 Exact known files:                  read_file / read_many
 Applying known edits:               apply_changes
-Running verification:               bash
+Trial edits + verification:         isolated_change
+Running verification:               verify_project
+Ad-hoc / short shell:               bash
+Long test/build/dev server:         long_task
 ```
 
 ## Tools
 
 Read mode: `fast_context`, `read_file`, `glob`, `grep`, `lsp`, `read_many`.
 
-Write mode adds: `write_file`, `edit_file`, `apply_changes`, `bash`.
+Write mode adds: `write_file`, `edit_file`, `apply_changes`, `verify_project`, `isolated_change`, `long_task`, `bash`.
 
 `route_preview` is local-debug only (`opengpt-connect --debug-tools`). It is not in the production MCP catalog.
 
-Not exposed: agent/plan/image/MCP-client tools, cron, tasks, web, worktree, skills, and other OpenHarness extras.
+Not exposed: agent/plan/image/MCP-client tools, cron, `task_create`/`local_agent`, web, and other OpenHarness extras. `verify_project` / `isolated_change` / `long_task` reuse OpenHarness model-free runners.
 
 ## How it works
 
