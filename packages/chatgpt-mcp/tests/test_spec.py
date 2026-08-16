@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from starlette.testclient import TestClient
 
 from chatgpt_mcp.adapter import ToolAdapter
-from chatgpt_mcp.allowlist import names_for_mode
+from chatgpt_mcp.allowlist import SKIPPED, names_for_mode
 from chatgpt_mcp.connect import main
 from chatgpt_mcp.server import create_app
 
@@ -49,6 +49,8 @@ async def test_path_outside_root_denied(workspace: Path) -> None:
         ("write_file", {"path": outside, "content": "x"}),
         ("glob", {"pattern": "*", "root": outside}),
         ("grep", {"pattern": "x", "root": outside}),
+        ("read_many", {"paths": [outside]}),
+        ("apply_changes", {"changes": [{"op": "write", "path": outside, "content": "x"}]}),
     ):
         result = await adapter.call(name, args)
         assert result.is_error, name
@@ -85,8 +87,58 @@ def test_connect_cli_nonzero_when_tunnel_fails(tmp_path: Path, monkeypatch: pyte
 
 
 def test_tools_list_profile(workspace: Path) -> None:
-    assert names_for_mode("read") == ("read_file", "glob", "grep")
-    assert names_for_mode("write")[-1] == "bash"
+    read = names_for_mode("read")
+    write = names_for_mode("write")
+    assert "read_file" in read and "read_many" in read and "glob" in read
+    assert "write_file" not in read and "apply_changes" not in read
+    assert write[-1] == "bash"
+    assert "notebook_edit" in write and "web_search" in write and "apply_changes" in write
+    for name in SKIPPED:
+        assert name not in write
+
+
+@pytest.mark.asyncio
+async def test_task_create_local_agent_denied(workspace: Path) -> None:
+    adapter = ToolAdapter(approved_root=workspace, mode="write")
+    result = await adapter.call(
+        "task_create",
+        {"type": "local_agent", "description": "x", "prompt": "hi"},
+    )
+    assert result.is_error
+
+
+@pytest.mark.asyncio
+async def test_read_many_and_apply_changes(workspace: Path) -> None:
+    (workspace / "a.txt").write_text("aaa\n", encoding="utf-8")
+    (workspace / "b.txt").write_text("bbb\n", encoding="utf-8")
+    adapter = ToolAdapter(approved_root=workspace, mode="write")
+    many = await adapter.call("read_many", {"paths": ["a.txt", "b.txt"]})
+    assert not many.is_error
+    assert "aaa" in many.output and "bbb" in many.output
+    applied = await adapter.call(
+        "apply_changes",
+        {
+            "changes": [
+                {"op": "write", "path": "c.txt", "content": "ccc\n"},
+                {"op": "edit", "path": "a.txt", "old_str": "aaa", "new_str": "AAA"},
+            ]
+        },
+    )
+    assert not applied.is_error, applied.output
+    assert (workspace / "c.txt").read_text(encoding="utf-8") == "ccc\n"
+    assert "AAA" in (workspace / "a.txt").read_text(encoding="utf-8")
+    before = (workspace / "b.txt").read_text(encoding="utf-8")
+    failed = await adapter.call(
+        "apply_changes",
+        {
+            "changes": [
+                {"op": "write", "path": "b.txt", "content": "mutated\n"},
+                {"op": "edit", "path": "a.txt", "old_str": "missing", "new_str": "x"},
+            ]
+        },
+    )
+    assert failed.is_error
+    assert (workspace / "b.txt").read_text(encoding="utf-8") == before
 
 
 INIT = {
@@ -126,7 +178,8 @@ def test_tools_list_and_session_get_delete(workspace: Path) -> None:
         assert listed.status_code < 400, listed.text
         body = listed.json()
         names = [tool["name"] for tool in body["result"]["tools"]]
-        assert names == ["read_file", "glob", "grep"]
+        assert names == list(names_for_mode("read"))
+        assert "write_file" not in names
         deleted = client.delete("/mcp", headers=session_headers)
         assert deleted.status_code < 500
         missing = client.get("/mcp", headers=session_headers)

@@ -110,18 +110,18 @@ Known v1 gap (document, do not pretend it is fixed): `SENSITIVE_PATH_PATTERNS` d
 
 ## Tool profile (v1 allowlist)
 
-Use OpenHarness `BaseTool.name` values unchanged (ChatGPT sees the same names):
+Bridge OpenHarness tools 1:1. ChatGPT sees the same `BaseTool.name` values.
 
-| Tool name | Class | Mode | Notes |
-| --- | --- | --- | --- |
-| `read_file` | FileReadTool | read, write | path jail |
-| `glob` | GlobTool | read, write | clamp `root` |
-| `grep` | GrepTool | read, write | clamp `root` |
-| `write_file` | FileWriteTool | write | path jail |
-| `edit_file` | FileEditTool | write | path jail |
-| `bash` | BashTool | write | see bash rules |
+Keep `read_many` / `apply_changes` as bridge-only batch helpers.
 
-New OpenHarness tools stay **off** until added to this allowlist. Submodule bump alone must not expose them to ChatGPT.
+Do **not** expose tools that need an inner LLM, `load_settings`, a TUI, or an MCP client:
+
+`agent`, `image_generation`, `image_to_text`, `ask_user_question`, `config`,
+`enter_plan_mode`, `exit_plan_mode`, `mcp_auth`, `list_mcp_resources`, `read_mcp_resource`.
+
+`task_create` with `type=local_agent` is denied at the adapter. `local_bash` is allowed.
+
+New OpenHarness tools stay **off** until added to `OH_SPECS`. Submodule bump alone must not expose them.
 
 ### Bash rules
 

@@ -45,12 +45,15 @@ class OriginAndTokenMiddleware(BaseHTTPMiddleware):
 
 def build_mcp_server(adapter: ToolAdapter) -> Server[Any]:
     specs = specs_for_mode(adapter.mode)
-    instances = {spec.name: spec.factory() for spec in specs if spec.name != "bash"}
+    instances = {spec.name: spec.factory() for spec in specs if spec.factory is not None}
 
     async def on_list_tools(_ctx: Any, _params: Any) -> types.ListToolsResult:
         tools: list[types.Tool] = []
         for spec in specs:
-            if spec.name == "bash":
+            if spec.schema is not None:
+                schema = spec.schema
+                description = spec.description or spec.name
+            elif spec.name == "bash":
                 schema = {
                     "type": "object",
                     "properties": {
@@ -60,7 +63,9 @@ def build_mcp_server(adapter: ToolAdapter) -> Server[Any]:
                     },
                     "required": ["command"],
                 }
-                description = "Run a shell command in the local repository."
+                description = instances["bash"].description if "bash" in instances else (
+                    "Run a shell command in the local repository."
+                )
             else:
                 tool = instances[spec.name]
                 schema = tool.input_model.model_json_schema()

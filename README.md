@@ -40,8 +40,11 @@ v1 bash is a host-equivalent shell. Workspace `.env` is readable in read mode un
          │  ToolAdapter                                 │
          │                                              │
          │  mode allowlist                              │
-         │    read:  read_file  glob  grep              │
-         │    write: + write_file  edit_file  bash      │
+         │  OpenHarness tools bridged 1:1 (minus LLM/TUI)│
+         │  + read_many / apply_changes                  │
+         │                                              │
+         │  read:  inspect / search / web / lsp / …     │
+         │  write: + edit / bash / tasks / cron / …     │
          │                                              │
          │  path jail (resolve + relative_to root)      │
          │  SENSITIVE_PATH_PATTERNS extra deny          │
@@ -50,8 +53,9 @@ v1 bash is a host-equivalent shell. Workspace `.env` is readable in read mode un
                       │  tool.execute(..., cwd=root)
                       ▼
          ┌──────────────────────────────────────────────┐
-         │  OpenHarness tool classes (library only)     │
-         │  FileRead / Glob / Grep / Write / Edit / Bash│
+         │  OpenHarness tool classes (library)          │
+         │  Not exposed: agent, images, config,         │
+         │  plan mode, ask_user, MCP-client tools       │
          └────────────┬─────────────────────────────────┘
                       │
                       ▼
