@@ -24,7 +24,7 @@ Prefer `fast_context` for exploratory questions, then `read_many` and `apply_cha
 
 v2 optimizes ChatGPT ↔ MCP round-trips, not Python function-call latency. Typical exploration: v1 used 3–6 tool turns; v2 uses 1 `fast_context` turn plus ChatGPT's semantic decision. Do not treat that as a fixed wall-clock speedup until measured in ChatGPT Web.
 
-The router does not understand code semantically. It uses OpenHarness's local dry-run candidate scoring plus small deterministic intent rules. ChatGPT remains responsible for semantic decisions. `fast_context` is read-only. Direct write tools remain write-mode-only.
+The router does not understand code semantically. It uses OpenHarness's local dry-run candidate scoring plus small deterministic intent rules. ChatGPT remains responsible for semantic decisions. `fast_context` is read-only. On a strong skill-name match it may prepend bundled/project skill text. Heuristic project memory is appended after repo evidence and must not override it. Direct write tools remain write-mode-only.
 
 ```
 ChatGPT
@@ -50,18 +50,21 @@ Exploring an unfamiliar code area:  fast_context
 Exact known search:                 grep
 Exact known files:                  read_file / read_many
 Applying known edits:               apply_changes
-Running verification:               bash
+Trial edits + verification:         isolated_change
+Running verification:               verify_project
+Ad-hoc / short shell:               bash
+Long test/build/dev server:         long_task
 ```
 
 ## Tools
 
 Read mode: `fast_context`, `read_file`, `glob`, `grep`, `lsp`, `read_many`.
 
-Write mode adds: `write_file`, `edit_file`, `apply_changes`, `bash`.
+Write mode adds: `write_file`, `edit_file`, `apply_changes`, `verify_project`, `isolated_change`, `long_task`, `bash`.
 
 `route_preview` is local-debug only (`opengpt-connect --debug-tools`). It is not in the production MCP catalog.
 
-Not exposed: agent/plan/image/MCP-client tools, cron, tasks, web, worktree, skills, and other OpenHarness extras.
+Not exposed: agent/plan/image/MCP-client tools, cron, `task_create`/`local_agent`, web, and other OpenHarness extras. `verify_project` / `isolated_change` / `long_task` reuse OpenHarness model-free runners.
 
 ## How it works
 

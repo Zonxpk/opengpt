@@ -70,11 +70,35 @@ def test_routing_imports_only_dry_run_helpers() -> None:
     assert "_build_dry_run_preview" not in imported
 
 
+def test_verify_project_does_not_import_autopilot_store() -> None:
+    path = BRIDGE_ROOT / "verify_project.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names = _imports_and_names(tree)
+    assert "RepoAutopilotStore" not in names
+    assert "openharness.autopilot.service" not in names
+    assert "openharness.verification" in names or "openharness.verification.run_verification" in names
+
+
+def test_long_task_does_not_import_agent_spawn() -> None:
+    path = BRIDGE_ROOT / "long_task.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names = _imports_and_names(tree)
+    assert "create_agent_task" not in names
+    assert "spawn_local_agent_task" not in names
+    assert "openharness.tasks.manager" in names or "BackgroundTaskManager" in names
+
+
 def test_v2_modules_import_without_provider_keys(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     import chatgpt_mcp.fast_context
     import chatgpt_mcp.routing
+    import chatgpt_mcp.isolated_change
+    import chatgpt_mcp.long_task
+    import chatgpt_mcp.verify_project
 
     assert chatgpt_mcp.routing.decide_route
     assert chatgpt_mcp.fast_context.FastContextService
+    assert chatgpt_mcp.verify_project.VerifyProjectService
+    assert chatgpt_mcp.isolated_change.IsolatedChangeService
+    assert chatgpt_mcp.long_task.LongTaskService

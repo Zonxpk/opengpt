@@ -13,7 +13,7 @@ HEAD_LINES = 80
 TAIL_LINES = 40
 HEAD_BYTES = 24 * 1024
 TAIL_BYTES = 8 * 1024
-SPILL_TOOLS = frozenset({"bash", "glob", "grep", "lsp", "read_many", "fast_context"})
+SPILL_TOOLS = frozenset({"bash", "glob", "grep", "lsp", "read_many", "fast_context", "verify_project", "isolated_change"})
 
 _SEQ = count(1)
 

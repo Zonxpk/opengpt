@@ -84,6 +84,11 @@ FAST_CONTEXT_SCHEMA: dict[str, Any] = {
     "required": ["prompt"],
 }
 
+VERIFY_PROJECT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {},
+}
+
 APPLY_CHANGES_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -106,6 +111,41 @@ APPLY_CHANGES_SCHEMA: dict[str, Any] = {
         }
     },
     "required": ["changes"],
+}
+
+ISOLATED_CHANGE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "changes": APPLY_CHANGES_SCHEMA["properties"]["changes"],
+        "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+        },
+    },
+    "required": ["changes"],
+}
+
+LONG_TASK_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "action": {
+            "type": "string",
+            "enum": ["start", "output", "stop", "list"],
+            "default": "start",
+        },
+        "command": {"type": "string"},
+        "argv": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+        },
+        "description": {"type": "string"},
+        "cwd": {"type": "string"},
+        "task_id": {"type": "string"},
+        "max_bytes": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 12000},
+    },
+    "required": ["action"],
 }
 
 
@@ -158,6 +198,41 @@ ROUTE_PREVIEW_SPEC = ToolSpec(
     schema=ROUTE_PREVIEW_SCHEMA,
 )
 
+VERIFY_PROJECT_SPEC = ToolSpec(
+    "verify_project",
+    None,
+    False,
+    description=(
+        "Run the repository verification policy (pytest/ruff/tsc when applicable) "
+        "via OpenHarness's model-free runner. Prefer this over ad-hoc bash for checks."
+    ),
+    schema=VERIFY_PROJECT_SCHEMA,
+)
+
+ISOLATED_CHANGE_SPEC = ToolSpec(
+    "isolated_change",
+    None,
+    False,
+    description=(
+        "Apply up to 20 writes/edits in a git worktree, run verify_project there, "
+        "and return diff + verification. The approved root is not modified. "
+        "The worktree is kept for ChatGPT to inspect or discard."
+    ),
+    schema=ISOLATED_CHANGE_SCHEMA,
+)
+
+LONG_TASK_SPEC = ToolSpec(
+    "long_task",
+    None,
+    False,
+    description=(
+        "Background local_bash only (no inner agent): start, output, stop, or list. "
+        "Use for long tests/builds/dev servers. Prefer bash or verify_project for short commands."
+    ),
+    schema=LONG_TASK_SCHEMA,
+    open_world=True,
+)
+
 FAST_CONTEXT_SPEC = ToolSpec(
     "fast_context",
     None,
@@ -177,6 +252,9 @@ SPECS: tuple[ToolSpec, ...] = (
     BATCH_SPECS[0],
     *(spec for spec in OH_SPECS if not spec.read_only and spec.name != "bash"),
     BATCH_SPECS[1],
+    VERIFY_PROJECT_SPEC,
+    ISOLATED_CHANGE_SPEC,
+    LONG_TASK_SPEC,
     next(spec for spec in OH_SPECS if spec.name == "bash"),
 )
 

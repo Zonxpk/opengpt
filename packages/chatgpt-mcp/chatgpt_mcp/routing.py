@@ -195,3 +195,13 @@ def decide_route(
         candidates=candidates,
         reasons=reasons,
     )
+
+
+def recommend_skills(prompt: str, skills: list[object]) -> tuple[ToolCandidate, ...]:
+    preview = _recommend_preview_candidates(
+        prompt,
+        skills=skills,
+        tool_schemas=[],
+        command_entries=[],
+    )
+    return _candidates_from_preview({"tools": preview.get("skills") or []})

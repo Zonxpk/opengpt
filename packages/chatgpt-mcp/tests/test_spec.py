@@ -163,6 +163,9 @@ def test_tools_list_profile(workspace: Path) -> None:
         "write_file",
         "edit_file",
         "apply_changes",
+        "verify_project",
+        "isolated_change",
+        "long_task",
         "bash",
     )
     assert "route_preview" not in write
