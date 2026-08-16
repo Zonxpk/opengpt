@@ -76,7 +76,8 @@ def test_verify_project_does_not_import_autopilot_store() -> None:
     names = _imports_and_names(tree)
     assert "RepoAutopilotStore" not in names
     assert "openharness.autopilot.service" not in names
-    assert "openharness.verification" in names or "openharness.verification.run_verification" in names
+    assert "chatgpt_mcp.verification" in names or "run_verification" in names
+    assert "openharness.verification" not in names
 
 
 def test_long_task_does_not_import_agent_spawn() -> None:

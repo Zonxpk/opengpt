@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from openharness.tools.base import ToolResult
-from openharness.verification import (
+
+from chatgpt_mcp.verification import (
     format_verification_report,
     load_verification_policy,
     run_verification,

@@ -12,7 +12,7 @@ Clone:
 git clone --recurse-submodules <this-repo>
 ```
 
-OpenHarness is the `upstreams/openharness` submodule (`https://github.com/HKUDS/OpenHarness.git`, pinned SHA).
+OpenHarness is the `upstreams/openharness` submodule (`https://github.com/HKUDS/OpenHarness.git`, pinned SHA). See `AGENTS.md` (*wrap*): OpenGPT adapters live in `packages/chatgpt-mcp`.
 
 Paste the printed `ChatGPT MCP URL` into ChatGPT as a Server URL (Streamable HTTP, auth none).
 
