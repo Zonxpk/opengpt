@@ -1,0 +1,6 @@
+[submodule "upstreams/openharness"]
+	path = upstreams/openharness
+	url = D:/Projects/OpenHarness
+[submodule "upstreams/gpt-repo-mcp"]
+	path = upstreams/gpt-repo-mcp
+	url = D:/Projects/gpt-repo-mcp
