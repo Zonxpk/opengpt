@@ -1,10 +1,11 @@
 [project]
 name = "chatgpt-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Streamable HTTP MCP adapter for OpenHarness tools"
 requires-python = ">=3.11"
 dependencies = [
-    "mcp>=1.9.0,<2",
+    "mcp>=2,<3",
+    "mcp-types>=2,<3",
     "uvicorn>=0.32.0",
     "starlette>=0.41.0",
     "pydantic>=2.0.0",

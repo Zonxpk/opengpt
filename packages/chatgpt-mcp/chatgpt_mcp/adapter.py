@@ -11,7 +11,8 @@ from openharness.tools.base import ToolExecutionContext, ToolRegistry, ToolResul
 from openharness.utils.shell import create_shell_subprocess
 
 from chatgpt_mcp.allowlist import MAX_BATCH, PATH_ARG_KEYS, names_for_mode, specs_for_mode
-from chatgpt_mcp.jail import glob_pattern_jail_reason, jail_path
+from chatgpt_mcp.fast_context import FastContextService
+from chatgpt_mcp.jail import jail_glob_pattern, jail_path
 from chatgpt_mcp.spill import maybe_spill
 
 _EXPLICIT_SETTINGS = Settings(
@@ -21,10 +22,11 @@ _EXPLICIT_SETTINGS = Settings(
 
 
 class ToolAdapter:
-    def __init__(self, *, approved_root: Path, mode: str) -> None:
+    def __init__(self, *, approved_root: Path, mode: str, debug_tools: bool = False) -> None:
         self.approved_root = approved_root.resolve()
         self.mode = mode
-        self.allowed = set(names_for_mode(mode))
+        self.debug_tools = debug_tools
+        self.allowed = set(names_for_mode(mode, debug_tools=debug_tools))
         self._checker = PermissionChecker(_EXPLICIT_SETTINGS.permission)
         self._tools = {
             spec.name: spec.factory()
@@ -38,11 +40,15 @@ class ToolAdapter:
             cwd=self.approved_root,
             metadata={"tool_registry": registry},
         )
+        self._fast_context = FastContextService(self.call)
 
     def instructions(self) -> str:
         text = (
             f"One approved workspace root: {self.approved_root}. Mode: {self.mode}. "
-            "Prefer read_many and apply_changes. File tools are jailed to the root. "
+            "Prefer fast_context for exploratory repository questions. "
+            "Use primitives when an exact tool call is already known. "
+            "Prefer read_many and apply_changes for batching. "
+            "File tools are jailed to the root. "
             "bash is a host-equivalent shell (not jailed); cwd is the root. "
             f"Oversized output spills to {self.approved_root.as_posix()}/.opengpt-spill/."
         )
@@ -52,7 +58,16 @@ class ToolAdapter:
         if name not in self.allowed:
             return ToolResult(output=f"Tool not available in {self.mode} mode: {name}", is_error=True)
         try:
-            if name == "bash":
+            if name == "route_preview":
+                result = self._route_preview(arguments)
+            elif name == "fast_context":
+                result = await self._fast_context.run(
+                    str(arguments.get("prompt") or ""),
+                    max_files=int(arguments.get("max_files") or 6),
+                    lines_per_file=int(arguments.get("lines_per_file") or 160),
+                    include_lsp=bool(arguments.get("include_lsp", True)),
+                )
+            elif name == "bash":
                 result = await self._bash(arguments)
             elif name == "read_many":
                 result = await self._read_many(arguments)
@@ -64,13 +79,34 @@ class ToolAdapter:
         except Exception as exc:
             return ToolResult(output=str(exc), is_error=True)
 
+    def _route_preview(self, arguments: dict[str, Any]) -> ToolResult:
+        prompt = str(arguments.get("prompt") or "").strip()
+        if not prompt:
+            return ToolResult(output="prompt is required", is_error=True)
+        decision = self._fast_context.preview(prompt)
+        lines = [
+            f"route: {decision.route.value}",
+            f"terms: {', '.join(decision.search_terms)}",
+            "candidates:",
+        ]
+        for candidate in decision.candidates:
+            lines.append(f"- {candidate.name}: {candidate.score}")
+        return ToolResult(output="\n".join(lines))
+
     async def _openharness(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         tool = self._tools[name]
         patched = dict(arguments)
-        if name == "glob":
-            denied = glob_pattern_jail_reason(str(patched.get("pattern") or patched.get("path") or ""))
-            if denied:
-                return ToolResult(output=denied, is_error=True)
+        if name == "glob" and "pattern" in patched:
+            safe_pattern, reason = jail_glob_pattern(
+                self.approved_root,
+                str(patched["pattern"]),
+            )
+            if reason or safe_pattern is None:
+                return ToolResult(
+                    output=reason or "glob pattern outside approved root is denied",
+                    is_error=True,
+                )
+            patched["pattern"] = safe_pattern
         for key in PATH_ARG_KEYS:
             if key not in patched or patched[key] in (None, ""):
                 continue

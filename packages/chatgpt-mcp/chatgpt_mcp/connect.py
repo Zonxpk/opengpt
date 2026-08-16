@@ -19,6 +19,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=("read", "write"), required=True)
     parser.add_argument("--tunnel", choices=("cloudflare", "none"), default="cloudflare")
     parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument(
+        "--debug-tools",
+        action="store_true",
+        help="Expose route_preview for local debugging. Do not use with ChatGPT Web.",
+    )
     return parser
 
 
@@ -28,12 +33,12 @@ def main(argv: list[str] | None = None) -> int:
     if not root.is_absolute():
         print("--root must be an absolute path", file=sys.stderr)
         return 2
-    return asyncio.run(_run(root, args.mode, args.tunnel, args.port))
+    return asyncio.run(_run(root, args.mode, args.tunnel, args.port, args.debug_tools))
 
 
-async def _run(root: Path, mode: str, tunnel: str, port: int) -> int:
+async def _run(root: Path, mode: str, tunnel: str, port: int, debug_tools: bool = False) -> int:
     token = secrets.token_hex(16) if tunnel == "cloudflare" else None
-    app = create_app(approved_root=root, mode=mode, token=token)
+    app = create_app(approved_root=root, mode=mode, token=token, debug_tools=debug_tools)
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
     server = uvicorn.Server(config)
     serve = asyncio.create_task(server.serve())
