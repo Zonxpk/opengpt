@@ -11,7 +11,7 @@ from openharness.tools.base import ToolExecutionContext, ToolRegistry, ToolResul
 from openharness.utils.shell import create_shell_subprocess
 
 from chatgpt_mcp.allowlist import MAX_BATCH, PATH_ARG_KEYS, names_for_mode, specs_for_mode
-from chatgpt_mcp.jail import glob_pattern_jail_reason, jail_path
+from chatgpt_mcp.jail import jail_glob_pattern, jail_path
 from chatgpt_mcp.spill import maybe_spill
 
 _EXPLICIT_SETTINGS = Settings(
@@ -67,10 +67,17 @@ class ToolAdapter:
     async def _openharness(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         tool = self._tools[name]
         patched = dict(arguments)
-        if name == "glob":
-            denied = glob_pattern_jail_reason(str(patched.get("pattern") or patched.get("path") or ""))
-            if denied:
-                return ToolResult(output=denied, is_error=True)
+        if name == "glob" and "pattern" in patched:
+            safe_pattern, reason = jail_glob_pattern(
+                self.approved_root,
+                str(patched["pattern"]),
+            )
+            if reason or safe_pattern is None:
+                return ToolResult(
+                    output=reason or "glob pattern outside approved root is denied",
+                    is_error=True,
+                )
+            patched["pattern"] = safe_pattern
         for key in PATH_ARG_KEYS:
             if key not in patched or patched[key] in (None, ""):
                 continue

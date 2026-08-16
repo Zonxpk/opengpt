@@ -45,6 +45,49 @@ async def test_wrong_token_is_404(workspace: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_glob_absolute_pattern_outside_root_denied(workspace: Path) -> None:
+    adapter = ToolAdapter(approved_root=workspace, mode="read")
+    outside = workspace.parent / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("secret", encoding="utf-8")
+
+    result = await adapter.call(
+        "glob",
+        {"pattern": str(outside / "**" / "*")},
+    )
+
+    assert result.is_error
+
+
+@pytest.mark.asyncio
+async def test_glob_parent_pattern_outside_root_denied(workspace: Path) -> None:
+    adapter = ToolAdapter(approved_root=workspace, mode="read")
+
+    result = await adapter.call(
+        "glob",
+        {"pattern": "../**/*"},
+    )
+
+    assert result.is_error
+
+
+@pytest.mark.asyncio
+async def test_glob_absolute_pattern_inside_root_allowed(workspace: Path) -> None:
+    source = workspace / "src"
+    source.mkdir()
+    (source / "app.py").write_text("print('ok')\n", encoding="utf-8")
+
+    adapter = ToolAdapter(approved_root=workspace, mode="read")
+    result = await adapter.call(
+        "glob",
+        {"pattern": str(source / "**" / "*.py")},
+    )
+
+    assert not result.is_error
+    assert "app.py" in result.output
+
+
+@pytest.mark.asyncio
 async def test_path_outside_root_denied(workspace: Path) -> None:
     adapter = ToolAdapter(approved_root=workspace, mode="write")
     outside = str(workspace.parent / "secret.txt")
@@ -321,8 +364,16 @@ async def test_cloudflare_tunnel_keeps_draining_stdout(monkeypatch: pytest.Monke
 
 @pytest.mark.asyncio
 async def test_bash_large_output_does_not_deadlock(workspace: Path) -> None:
-    (workspace / "huge.txt").write_text("y" * 300_000, encoding="utf-8")
     adapter = ToolAdapter(approved_root=workspace, mode="write")
-    result = await adapter.call("bash", {"command": "cat huge.txt", "timeout_seconds": 30})
-    assert not result.is_error, result.output
-    assert SPILL_DIR in result.output
+
+    (workspace / "huge.txt").write_text("x" * 2_000_000, encoding="utf-8")
+    result = await adapter.call(
+        "bash",
+        {
+            "command": "cat huge.txt",
+            "timeout_seconds": 10,
+        },
+    )
+
+    assert not result.is_error
+    assert ".opengpt-spill/" in result.output
