@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-import mcp_types as types
+import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from mcp_types import ToolAnnotations
+from mcp.types import ToolAnnotations
 from openharness.tools.bash_tool import BashTool
 from openharness.tools.file_edit_tool import FileEditTool
 from openharness.tools.file_read_tool import FileReadTool
