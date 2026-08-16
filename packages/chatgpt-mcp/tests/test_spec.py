@@ -144,13 +144,23 @@ def test_bash_is_marked_open_world() -> None:
 def test_tools_list_profile(workspace: Path) -> None:
     read = names_for_mode("read")
     write = names_for_mode("write")
-    assert read == ("read_file", "glob", "grep", "lsp", "read_many")
+    assert read == (
+        "read_file",
+        "glob",
+        "grep",
+        "lsp",
+        "read_many",
+        "route_preview",
+        "fast_context",
+    )
     assert write == (
         "read_file",
         "glob",
         "grep",
         "lsp",
         "read_many",
+        "route_preview",
+        "fast_context",
         "write_file",
         "edit_file",
         "apply_changes",
@@ -288,6 +298,24 @@ def test_tools_list_and_session_get_delete(workspace: Path) -> None:
         names = [tool["name"] for tool in body["result"]["tools"]]
         assert names == list(names_for_mode("read"))
         assert "write_file" not in names
+        preview = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "route_preview",
+                    "arguments": {"prompt": "Find references to hello"},
+                },
+            },
+            headers=session_headers,
+        )
+        assert preview.status_code < 400, preview.text
+        preview_body = preview.json()
+        assert preview_body["result"]["isError"] is False
+        preview_text = preview_body["result"]["content"][0]["text"]
+        assert "route:" in preview_text
         deleted = client.delete("/mcp", headers=session_headers)
         assert deleted.status_code < 500
         missing = client.get("/mcp", headers=session_headers)
