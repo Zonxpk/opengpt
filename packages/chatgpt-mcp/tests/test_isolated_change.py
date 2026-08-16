@@ -129,3 +129,32 @@ async def test_isolated_change_does_not_follow_shared_symlinks(
     assert "escapes write root" in result.output
     assert not (repo / shared / "foo").exists()
     assert (repo / shared / "keep.txt").read_text(encoding="utf-8") == "keep\n"
+
+
+def _slug_line(output: str) -> str:
+    for line in output.splitlines():
+        if line.startswith("slug: "):
+            return line.removeprefix("slug: ").strip()
+    raise AssertionError(f"no slug line in:\n{output}")
+
+
+@pytest.mark.asyncio
+async def test_isolated_change_default_slugs_do_not_collide(
+    repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_run(self, cwd):
+        return ToolResult(output="ok", is_error=False)
+
+    monkeypatch.setattr(VerifyProjectService, "run", fake_run)
+    service = IsolatedChangeService(approved_root=repo, worktree_base=tmp_path / "wt")
+    first = await service.run([{"op": "write", "path": "hello.txt", "content": "one\n"}])
+    second = await service.run([{"op": "write", "path": "hello.txt", "content": "two\n"}])
+    assert not first.is_error
+    assert not second.is_error
+    slug_a = _slug_line(first.output)
+    slug_b = _slug_line(second.output)
+    assert slug_a != slug_b
+    assert (tmp_path / "wt" / slug_a / "hello.txt").read_text(encoding="utf-8") == "one\n"
+    assert (tmp_path / "wt" / slug_b / "hello.txt").read_text(encoding="utf-8") == "two\n"

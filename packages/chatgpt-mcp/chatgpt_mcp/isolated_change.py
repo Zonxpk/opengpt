@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
-import time
 from pathlib import Path
+from uuid import uuid4
 
 from openharness.swarm.worktree import WorktreeManager
 from openharness.tools.base import ToolResult
@@ -40,7 +40,7 @@ class IsolatedChangeService:
             )
 
         manager = WorktreeManager(base_dir=self.worktree_base)
-        slug = (slug or f"opengpt-{int(time.time())}").strip()
+        slug = (slug or f"opengpt-{uuid4().hex[:12]}").strip()
         try:
             info = await manager.create_worktree(self.approved_root, slug, agent_id="opengpt")
         except Exception as exc:
