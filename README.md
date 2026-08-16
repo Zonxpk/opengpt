@@ -20,11 +20,42 @@ Paste the printed `ChatGPT MCP URL` into ChatGPT as a Server URL (Streamable HTT
 
 v1 file tools are jailed to `--root`. `bash` is a **host-equivalent shell** (cwd pinned, host otherwise reachable). Do not treat the whole MCP as jailed. Workspace `.env` is readable in read mode unless later deny-listed.
 
-Prefer `read_many` and `apply_changes` (up to 20 files per call). Oversized `grep` / `bash` / `glob` / `lsp` / `read_many` results are written to `--root/.opengpt-spill/` and the model gets a head/tail preview plus that path.
+Prefer `fast_context` for exploratory questions, then `read_many` and `apply_changes` (up to 20 files per call). Oversized `grep` / `bash` / `glob` / `lsp` / `read_many` / `fast_context` results are written to `--root/.opengpt-spill/` and the model gets a head/tail preview plus that path.
+
+v2 optimizes ChatGPT ↔ MCP round-trips, not Python function-call latency. Typical exploration: v1 used 3–6 tool turns; v2 uses 1 `fast_context` turn plus ChatGPT's semantic decision. Do not treat that as a fixed wall-clock speedup until measured in ChatGPT Web.
+
+The router does not understand code semantically. It uses OpenHarness's local dry-run candidate scoring plus small deterministic intent rules. ChatGPT remains responsible for semantic decisions. `fast_context` is read-only. Direct write tools remain write-mode-only.
+
+```
+ChatGPT
+   │
+   │ one MCP call
+   ▼
+fast_context
+   │
+   ├─ OpenHarness dry-run candidate routing
+   │      no LLM
+   │
+   └─ deterministic recipe
+          │
+          ├─ grep
+          ├─ read_many
+          └─ optional LSP
+```
+
+Recommended tool use:
+
+```
+Exploring an unfamiliar code area:  fast_context
+Exact known search:                 grep
+Exact known files:                  read_file / read_many
+Applying known edits:               apply_changes
+Running verification:               bash
+```
 
 ## Tools
 
-Read mode: `read_file`, `glob`, `grep`, `lsp`, `read_many`.
+Read mode: `read_file`, `glob`, `grep`, `lsp`, `read_many`, `route_preview`, `fast_context`.
 
 Write mode adds: `write_file`, `edit_file`, `apply_changes`, `bash`.
 
