@@ -88,7 +88,7 @@ OH_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("lsp", LspTool, True),
     ToolSpec("write_file", FileWriteTool, False),
     ToolSpec("edit_file", FileEditTool, False),
-    ToolSpec("bash", BashTool, False),
+    ToolSpec("bash", BashTool, False, open_world=True),
 )
 
 BATCH_SPECS: tuple[ToolSpec, ...] = (
@@ -104,8 +104,9 @@ BATCH_SPECS: tuple[ToolSpec, ...] = (
         None,
         False,
         description=(
-            "Apply up to 20 writes/edits in one call. All paths are jailed first; "
-            "nothing is written if any change is invalid."
+            "Apply up to 20 writes/edits in one call. Paths are jailed first. "
+            "Edits to the same file stack in order. Invalid changes write nothing; "
+            "a filesystem error mid-write is not rolled back."
         ),
         schema=APPLY_CHANGES_SCHEMA,
     ),

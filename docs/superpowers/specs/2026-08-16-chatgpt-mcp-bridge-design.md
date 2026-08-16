@@ -6,7 +6,7 @@ Repos: `D:\Projects\OpenHarness`, `D:\Projects\gpt-repo-mcp`, new `D:\Projects\o
 
 ## Goal
 
-ChatGPT Developer Mode drives local OpenHarness tools. ChatGPT is the only LLM. `opengpt` is a monorepo that pins both upstreams as git submodules and owns a thin Python MCP bridge.
+ChatGPT Developer Mode drives local OpenHarness tools. ChatGPT is the only LLM. `opengpt` is a monorepo that pins OpenHarness as a git submodule and owns a thin Python MCP bridge.
 
 Success: paste one HTTPS **Server URL** into ChatGPT (not a Tunnel ID), select the connector, and have ChatGPT read/edit files and run bash inside one approved workspace. No Anthropic/OpenAI API key is required for `opengpt` to run.
 
@@ -19,15 +19,14 @@ ChatGPT connector settings for v1: type **Server URL**, auth **none**, protocol 
 - Default ngrok
 - Docker/OS jail for bash (document host-equivalent shell)
 - Push, deploy, or any LLM provider call from the bridge
-- Editing `OpenHarness` or `gpt-repo-mcp` in place (submodules stay read-mostly)
+- Editing `OpenHarness` in place (submodule stays read-mostly)
 - `config.local.json` as a second source of workspace root
 
 ## Layout
 
 ```
 opengpt/
-  upstreams/openharness/      # git submodule → OpenHarness
-  upstreams/gpt-repo-mcp/     # git submodule → gpt-repo-mcp (patterns only)
+  upstreams/openharness/      # git submodule → https://github.com/HKUDS/OpenHarness.git
   packages/chatgpt-mcp/       # owned Python package: HTTP MCP + adapter + connect
   docs/superpowers/specs/     # this design
 ```
@@ -102,8 +101,8 @@ Optional later (not v1): ngrok, OpenAI Secure MCP Tunnel.
 - **Adapter path jail (required):** after `Path.resolve()`, every file/glob/grep path must satisfy `relative_to(approved_root)`. Symlink escape = deny. Clamp glob/grep `root` arguments the same way. Model this on `openharness.sandbox.path_validator.validate_sandbox_path` without requiring Docker.
 - `PermissionChecker` / `SENSITIVE_PATH_PATTERNS`: extra deny after the jail.
 - Server binds `127.0.0.1` only. External bind is out of v1.
-- MCP annotations, static per tool (not per-call): `readOnlyHint` true for `read_file`/`glob`/`grep`; `destructiveHint` true for `write_file`/`edit_file`/`bash`; `openWorldHint` false on all v1 tools.
-- MCP `instructions` first 512 characters must be self-contained: one root, mode, path jail, bash is host shell.
+- MCP annotations, static per tool (not per-call): `readOnlyHint` true for `read_file`/`glob`/`grep`; `destructiveHint` true for `write_file`/`edit_file`/`bash`; `openWorldHint` true for `bash`, false for file tools.
+- MCP `instructions` first 512 characters must be self-contained: one root, mode, file-tool jail, bash is host-equivalent (not jailed).
 - Max concurrent MCP sessions: 100. Idle TTL: 30 minutes.
 
 Known v1 gap (document, do not pretend it is fixed): `SENSITIVE_PATH_PATTERNS` does not cover `.env` or generic `credentials.json`. Workspace `.env` is readable in read mode unless later deny-listed.
@@ -166,9 +165,9 @@ CI: a static import-guard test fails if the bridge or an allowlisted tool module
 1. `git submodule update --remote upstreams/openharness`
 2. Run chatgpt-mcp tests
 3. If a new OpenHarness tool is useful and is not a token sink, add it to the allowlist in a separate change
-4. `upstreams/gpt-repo-mcp` updates are optional; pull when copying a connect/session/network fix, never to take TS tools
+4. Pattern copies from other MCP servers stay in git history / design notes; no runtime submodule for them
 
-Pin submodule SHAs in the parent repo so clones are reproducible. Initialize submodules from the local clones `D:\Projects\OpenHarness` and `D:\Projects\gpt-repo-mcp` (file URLs), not from a forced GitHub fork.
+Pin submodule SHAs in the parent repo so clones are reproducible. `upstreams/openharness` points at `https://github.com/HKUDS/OpenHarness.git`.
 
 ## v1 CLI
 

@@ -19,3 +19,14 @@ def jail_path(approved_root: Path, candidate: str | None) -> tuple[Path | None, 
     if not allowed:
         return None, reason
     return resolved, None
+
+
+def glob_pattern_jail_reason(pattern: str | None) -> str | None:
+    if pattern is None or not str(pattern).strip():
+        return None
+    text = str(pattern)
+    if Path(text).expanduser().is_absolute():
+        return "glob pattern must be relative to the approved workspace root"
+    if ".." in Path(text).parts:
+        return "glob pattern must not contain .."
+    return None

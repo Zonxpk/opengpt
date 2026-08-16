@@ -6,11 +6,19 @@ ChatGPT Developer Mode drives local OpenHarness tools through a thin Python MCP 
 uv run opengpt-connect --root <abs-path> --mode read|write [--tunnel cloudflare|none]
 ```
 
+Clone:
+
+```
+git clone --recurse-submodules <this-repo>
+```
+
+OpenHarness is the `upstreams/openharness` submodule (`https://github.com/HKUDS/OpenHarness.git`, pinned SHA).
+
 Paste the printed `ChatGPT MCP URL` into ChatGPT as a Server URL (Streamable HTTP, auth none).
 
 `--tunnel none` is loopback/tests only. It does not print a ChatGPT URL.
 
-v1 bash is a host-equivalent shell. Workspace `.env` is readable in read mode unless later deny-listed.
+v1 file tools are jailed to `--root`. `bash` is a **host-equivalent shell** (cwd pinned, host otherwise reachable). Do not treat the whole MCP as jailed. Workspace `.env` is readable in read mode unless later deny-listed.
 
 Prefer `read_many` and `apply_changes` (up to 20 files per call). Oversized `grep` / `bash` / `glob` / `lsp` / `read_many` results are written to `--root/.opengpt-spill/` and the model gets a head/tail preview plus that path.
 
@@ -54,9 +62,9 @@ Not exposed: agent/plan/image/MCP-client tools, cron, tasks, web, worktree, skil
          │  + read_many / apply_changes                 │
          │  + spill oversized output to .opengpt-spill  │
          │                                              │
-         │  path jail (resolve + relative_to root)      │
+         │  path jail for file/glob/grep/edit           │
          │  SENSITIVE_PATH_PATTERNS extra deny          │
-         │  bash cwd pinned to --root  (no Docker)      │
+         │  bash: host-equivalent (cwd pin only)        │
          └────────────┬─────────────────────────────────┘
                       │  tool.execute(..., cwd=root)
                       ▼

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -7,10 +8,11 @@ from httpx import ASGITransport, AsyncClient
 from starlette.testclient import TestClient
 
 from chatgpt_mcp.adapter import ToolAdapter
-from chatgpt_mcp.allowlist import SKIPPED, names_for_mode
+from chatgpt_mcp.allowlist import SKIPPED, SPECS, annotations_for, names_for_mode
 from chatgpt_mcp.connect import main
 from chatgpt_mcp.server import create_app
 from chatgpt_mcp.spill import MAX_BYTES, SPILL_DIR, maybe_spill
+from chatgpt_mcp.tunnel import start_cloudflare_tunnel
 from openharness.tools.base import ToolResult
 
 
@@ -50,6 +52,7 @@ async def test_path_outside_root_denied(workspace: Path) -> None:
         ("read_file", {"path": outside}),
         ("write_file", {"path": outside, "content": "x"}),
         ("glob", {"pattern": "*", "root": outside}),
+        ("glob", {"pattern": str(Path(outside) / "**" / "*")}),
         ("grep", {"pattern": "x", "root": outside}),
         ("read_many", {"paths": [outside]}),
         ("apply_changes", {"changes": [{"op": "write", "path": outside, "content": "x"}]}),
@@ -86,6 +89,13 @@ def test_connect_cli_nonzero_when_tunnel_fails(tmp_path: Path, monkeypatch: pyte
     monkeypatch.setattr("chatgpt_mcp.connect.start_cloudflare_tunnel", boom)
     code = main(["--root", str(tmp_path.resolve()), "--mode", "read", "--tunnel", "cloudflare", "--port", "0"])
     assert code != 0
+
+
+def test_bash_is_marked_open_world() -> None:
+    spec = next(item for item in SPECS if item.name == "bash")
+    hints = annotations_for(spec)
+    assert hints.destructive_hint is True
+    assert hints.open_world_hint is True
 
 
 def test_tools_list_profile(workspace: Path) -> None:
@@ -171,6 +181,17 @@ async def test_read_many_and_apply_changes(workspace: Path) -> None:
     )
     assert failed.is_error
     assert (workspace / "b.txt").read_text(encoding="utf-8") == before
+    stacked = await adapter.call(
+        "apply_changes",
+        {
+            "changes": [
+                {"op": "edit", "path": "a.txt", "old_str": "AAA", "new_str": "one"},
+                {"op": "edit", "path": "a.txt", "old_str": "one", "new_str": "two"},
+            ]
+        },
+    )
+    assert not stacked.is_error, stacked.output
+    assert "two" in (workspace / "a.txt").read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio
@@ -228,3 +249,80 @@ def test_tools_list_and_session_get_delete(workspace: Path) -> None:
         assert deleted.status_code < 500
         missing = client.get("/mcp", headers=session_headers)
         assert missing.status_code in {400, 404}
+
+
+def test_session_cap_allows_existing_traffic(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("chatgpt_mcp.server.MAX_SESSIONS", 1)
+    app = create_app(approved_root=workspace, mode="read", token=None, json_response=True)
+    headers = {
+        "accept": "application/json, text/event-stream",
+        "content-type": "application/json",
+    }
+    with TestClient(app) as client:
+        first = client.post("/mcp", json=INIT, headers=headers)
+        assert first.status_code < 400, first.text
+        session = first.headers.get("mcp-session-id")
+        assert session
+        session_headers = {**headers, "mcp-session-id": session}
+        listed = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            headers=session_headers,
+        )
+        assert listed.status_code < 400, listed.text
+        second = client.post("/mcp", json=INIT, headers=headers)
+        assert second.status_code == 503
+        deleted = client.delete("/mcp", headers=session_headers)
+        assert deleted.status_code != 503
+
+
+class _FakeTunnelProcess:
+    def __init__(self) -> None:
+        self.returncode = None
+        self._lines = [
+            b"starting\n",
+            b"https://example.trycloudflare.com\n",
+        ]
+        self._extra = 0
+        self.stdout = self
+
+    async def readline(self) -> bytes:
+        if self._lines:
+            return self._lines.pop(0)
+        return b""
+
+    async def read(self, _n: int = -1) -> bytes:
+        self._extra += 1
+        if self._extra > 8:
+            return b""
+        await asyncio.sleep(0)
+        return b"log line that would fill a pipe\n"
+
+    async def wait(self) -> int:
+        return 0
+
+    def kill(self) -> None:
+        self.returncode = -1
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_tunnel_keeps_draining_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeTunnelProcess()
+
+    async def spawn(*_args: object, **_kwargs: object) -> _FakeTunnelProcess:
+        return fake
+
+    url, proc = await start_cloudflare_tunnel("http://127.0.0.1:8787", spawn=spawn)
+    assert url == "https://example.trycloudflare.com"
+    assert proc is fake
+    await asyncio.sleep(0.05)
+    assert fake._extra > 0
+
+
+@pytest.mark.asyncio
+async def test_bash_large_output_does_not_deadlock(workspace: Path) -> None:
+    (workspace / "huge.txt").write_text("y" * 300_000, encoding="utf-8")
+    adapter = ToolAdapter(approved_root=workspace, mode="write")
+    result = await adapter.call("bash", {"command": "cat huge.txt", "timeout_seconds": 30})
+    assert not result.is_error, result.output
+    assert SPILL_DIR in result.output

@@ -5,14 +5,35 @@ import re
 import shutil
 import time
 from collections.abc import Callable
-from typing import IO
+from typing import Any
 
 CLOUDFLARE_URL = re.compile(r"https://[-a-z0-9.]+\.trycloudflare\.com", re.I)
 INSTALL_HINT = "cloudflared not found. Install cloudflared, then retry --tunnel cloudflare."
 
+_DRAIN_TASKS: set[asyncio.Task[None]] = set()
+
 
 class TunnelError(RuntimeError):
     pass
+
+
+async def _drain_stdout(stream: asyncio.StreamReader | Any) -> None:
+    try:
+        while True:
+            read = stream.read
+            chunk = await read(65536)
+            if not chunk:
+                break
+    except Exception:
+        return
+
+
+def _keep_draining(process: asyncio.subprocess.Process) -> None:
+    if process.stdout is None:
+        return
+    task = asyncio.create_task(_drain_stdout(process.stdout))
+    _DRAIN_TASKS.add(task)
+    task.add_done_callback(_DRAIN_TASKS.discard)
 
 
 async def start_cloudflare_tunnel(
@@ -46,6 +67,7 @@ async def start_cloudflare_tunnel(
         buffer += chunk.decode("utf-8", errors="replace")
         match = CLOUDFLARE_URL.search(buffer)
         if match:
+            _keep_draining(process)
             return match.group(0).rstrip("/"), process
     process.kill()
     raise TunnelError("No public Cloudflare URL appeared within 30 seconds. Install/check cloudflared.")

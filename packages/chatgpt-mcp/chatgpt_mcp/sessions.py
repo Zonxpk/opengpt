@@ -41,3 +41,10 @@ class SessionStore:
 
     def close(self, session_id: str) -> bool:
         return self._sessions.pop(session_id, None) is not None
+
+    def __len__(self) -> int:
+        return len(self._sessions)
+
+    def can_create(self) -> bool:
+        self.sweep()
+        return len(self._sessions) < self.max_sessions

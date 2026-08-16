@@ -18,10 +18,18 @@ from starlette.types import ASGIApp
 from chatgpt_mcp.adapter import ToolAdapter
 from chatgpt_mcp.allowlist import annotations_for, specs_for_mode
 from chatgpt_mcp.network import is_allowed_browser_origin, is_authorized_mcp_path, mcp_path
+from chatgpt_mcp.sessions import SessionStore
 
 JSON_LIMIT = 2 * 1024 * 1024
 MAX_SESSIONS = 100
 SESSION_IDLE_S = 30 * 60
+
+
+def _mcp_session_id(scope: dict[str, Any]) -> str | None:
+    for key, value in scope.get("headers") or []:
+        if key.lower() == b"mcp-session-id":
+            return value.decode("latin1")
+    return None
 
 
 class OriginAndTokenMiddleware(BaseHTTPMiddleware):
@@ -124,27 +132,56 @@ def create_app(
         max_request_body_size=JSON_LIMIT,
     )
     mcp_asgi = StreamableHTTPASGIApp(session_manager)
+    store = SessionStore(max_sessions=MAX_SESSIONS, idle_ttl_s=SESSION_IDLE_S)
 
     async def health(_request: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "name": "opengpt-chatgpt-mcp"})
 
     class McpASGI:
-        def __init__(self, inner: StreamableHTTPASGIApp, manager: StreamableHTTPSessionManager) -> None:
+        def __init__(
+            self,
+            inner: StreamableHTTPASGIApp,
+            sessions: SessionStore,
+        ) -> None:
             self.inner = inner
-            self.manager = manager
+            self.sessions = sessions
 
         async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
-            instances = getattr(self.manager, "_server_instances", None)
-            if instances is not None and len(instances) >= MAX_SESSIONS:
+            if scope.get("type") != "http":
+                await self.inner(scope, receive, send)
+                return
+            session_id = _mcp_session_id(scope)
+            method = str(scope.get("method") or "")
+            if session_id:
+                if self.sessions.get(session_id) is None:
+                    self.sessions.commit(session_id)
+                if method == "DELETE":
+                    await self.inner(scope, receive, send)
+                    self.sessions.close(session_id)
+                    return
+                await self.inner(scope, receive, send)
+                return
+            if not self.sessions.can_create():
                 response = PlainTextResponse("MCP session capacity reached", status_code=503)
                 await response(scope, receive, send)
                 return
-            await self.inner(scope, receive, send)
+            captured: dict[str, str] = {}
+
+            async def send_wrapper(message: dict[str, Any]) -> None:
+                if message.get("type") == "http.response.start":
+                    for key, value in message.get("headers") or []:
+                        if key.lower() == b"mcp-session-id":
+                            captured["id"] = value.decode("latin1")
+                await send(message)
+
+            await self.inner(scope, receive, send_wrapper)
+            if captured.get("id"):
+                self.sessions.commit(captured["id"])
 
     app = Starlette(
         routes=[
             Route("/health", health),
-            Route(path, endpoint=McpASGI(mcp_asgi, session_manager)),
+            Route(path, endpoint=McpASGI(mcp_asgi, store)),
         ],
         lifespan=lambda _app: session_manager.run(),
     )

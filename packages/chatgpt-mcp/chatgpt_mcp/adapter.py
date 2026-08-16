@@ -11,7 +11,7 @@ from openharness.tools.base import ToolExecutionContext, ToolRegistry, ToolResul
 from openharness.utils.shell import create_shell_subprocess
 
 from chatgpt_mcp.allowlist import MAX_BATCH, PATH_ARG_KEYS, names_for_mode, specs_for_mode
-from chatgpt_mcp.jail import jail_path
+from chatgpt_mcp.jail import glob_pattern_jail_reason, jail_path
 from chatgpt_mcp.spill import maybe_spill
 
 _EXPLICIT_SETTINGS = Settings(
@@ -42,9 +42,9 @@ class ToolAdapter:
     def instructions(self) -> str:
         text = (
             f"One approved workspace root: {self.approved_root}. Mode: {self.mode}. "
-            "Prefer read_many and apply_changes. Paths jailed to the root. "
-            "bash cwd is the root. Oversized grep/bash/glob output is spilled "
-            f"to {self.approved_root.as_posix()}/.opengpt-spill/; read with offset."
+            "Prefer read_many and apply_changes. File tools are jailed to the root. "
+            "bash is a host-equivalent shell (not jailed); cwd is the root. "
+            f"Oversized output spills to {self.approved_root.as_posix()}/.opengpt-spill/."
         )
         return text[:512]
 
@@ -67,6 +67,10 @@ class ToolAdapter:
     async def _openharness(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         tool = self._tools[name]
         patched = dict(arguments)
+        if name == "glob":
+            denied = glob_pattern_jail_reason(str(patched.get("pattern") or patched.get("path") or ""))
+            if denied:
+                return ToolResult(output=denied, is_error=True)
         for key in PATH_ARG_KEYS:
             if key not in patched or patched[key] in (None, ""):
                 continue
@@ -122,7 +126,8 @@ class ToolAdapter:
             return ToolResult(output="changes must be a non-empty list", is_error=True)
         if len(changes) > MAX_BATCH:
             return ToolResult(output=f"at most {MAX_BATCH} changes per apply_changes", is_error=True)
-        planned: list[tuple[Path, str]] = []
+        staged: dict[Path, str] = {}
+        order: list[Path] = []
         for index, change in enumerate(changes):
             if not isinstance(change, dict):
                 return ToolResult(output=f"change {index} must be an object", is_error=True)
@@ -133,30 +138,35 @@ class ToolAdapter:
             if op == "write":
                 if "content" not in change:
                     return ToolResult(output=f"change {index}: write requires content", is_error=True)
-                planned.append((jailed, str(change["content"])))
+                if jailed not in staged:
+                    order.append(jailed)
+                staged[jailed] = str(change["content"])
             elif op == "edit":
                 old = change.get("old_str")
                 new = change.get("new_str")
                 if not isinstance(old, str) or not isinstance(new, str):
                     return ToolResult(output=f"change {index}: edit requires old_str and new_str", is_error=True)
-                if not jailed.exists():
+                if jailed in staged:
+                    original = staged[jailed]
+                elif jailed.exists():
+                    original = jailed.read_text(encoding="utf-8")
+                else:
                     return ToolResult(output=f"change {index}: file not found: {self._rel(jailed)}", is_error=True)
-                original = jailed.read_text(encoding="utf-8")
                 if old not in original:
                     return ToolResult(
                         output=f"change {index}: old_str was not found in {self._rel(jailed)}",
                         is_error=True,
                     )
-                if change.get("replace_all"):
-                    planned.append((jailed, original.replace(old, new)))
-                else:
-                    planned.append((jailed, original.replace(old, new, 1)))
+                updated = original.replace(old, new) if change.get("replace_all") else original.replace(old, new, 1)
+                if jailed not in staged:
+                    order.append(jailed)
+                staged[jailed] = updated
             else:
                 return ToolResult(output=f"change {index}: op must be write or edit", is_error=True)
         written: list[str] = []
-        for path, content in planned:
+        for path in order:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
+            path.write_text(staged[path], encoding="utf-8")
             written.append(self._rel(path))
         return ToolResult(output="applied:\n" + "\n".join(written))
 
@@ -181,15 +191,12 @@ class ToolAdapter:
             stderr=asyncio.subprocess.STDOUT,
         )
         try:
-            await asyncio.wait_for(process.wait(), timeout=timeout)
+            raw, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
             return ToolResult(output=f"timed out after {timeout}s", is_error=True)
-        raw = b""
-        if process.stdout is not None:
-            raw = await process.stdout.read()
-        text = raw.decode("utf-8", errors="replace")
+        text = (raw or b"").decode("utf-8", errors="replace")
         return ToolResult(output=text, is_error=process.returncode != 0)
 
     def _sensitive(self, file_path: str) -> str | None:
