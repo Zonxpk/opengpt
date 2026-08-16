@@ -34,6 +34,9 @@ def test_find_where_routes_to_search_and_inspect() -> None:
     assert decision.route == RouteName.SEARCH_AND_INSPECT
     assert "jwt" in decision.search_terms
     assert "refresh" in decision.search_terms
+    assert "tokens" in decision.search_terms
+    assert "validated" in decision.search_terms
+    assert "are" not in decision.search_terms
 
 
 def test_symbol_query_routes_to_symbol() -> None:
@@ -68,3 +71,5 @@ def test_routing_entries_only_use_safe_allowlist() -> None:
     assert "task_create" not in names
     assert "image_generation" not in names
     assert "mcp_auth" not in names
+    assert "fast_context" not in names
+    assert "route_preview" not in names

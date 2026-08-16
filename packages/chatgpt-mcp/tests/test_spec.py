@@ -145,27 +145,29 @@ def test_tools_list_profile(workspace: Path) -> None:
     read = names_for_mode("read")
     write = names_for_mode("write")
     assert read == (
+        "fast_context",
         "read_file",
         "glob",
         "grep",
         "lsp",
         "read_many",
-        "route_preview",
-        "fast_context",
     )
+    assert "route_preview" not in read
     assert write == (
+        "fast_context",
         "read_file",
         "glob",
         "grep",
         "lsp",
         "read_many",
-        "route_preview",
-        "fast_context",
         "write_file",
         "edit_file",
         "apply_changes",
         "bash",
     )
+    assert "route_preview" not in write
+    debug_read = names_for_mode("read", debug_tools=True)
+    assert "route_preview" in debug_read
     for name in (*SKIPPED, "cron_list", "task_create", "web_search", "notebook_edit"):
         assert name not in write
 
@@ -179,6 +181,17 @@ async def test_hidden_tools_are_unavailable(workspace: Path) -> None:
     )
     assert result.is_error
     assert "not available" in result.output
+
+
+@pytest.mark.asyncio
+async def test_route_preview_is_debug_only(workspace: Path) -> None:
+    hidden = ToolAdapter(approved_root=workspace, mode="read")
+    denied = await hidden.call("route_preview", {"prompt": "Find where hello is"})
+    assert denied.is_error
+    debug = ToolAdapter(approved_root=workspace, mode="read", debug_tools=True)
+    preview = await debug.call("route_preview", {"prompt": "Find where hello is"})
+    assert not preview.is_error
+    assert "route:" in preview.output
 
 
 def test_spill_keeps_small_output(workspace: Path) -> None:
@@ -298,11 +311,29 @@ def test_tools_list_and_session_get_delete(workspace: Path) -> None:
         names = [tool["name"] for tool in body["result"]["tools"]]
         assert names == list(names_for_mode("read"))
         assert "write_file" not in names
-        preview = client.post(
+        called = client.post(
             "/mcp",
             json={
                 "jsonrpc": "2.0",
                 "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "fast_context",
+                    "arguments": {"prompt": "Find references to hello"},
+                },
+            },
+            headers=session_headers,
+        )
+        assert called.status_code < 400, called.text
+        called_body = called.json()
+        assert called_body["result"]["isError"] is False
+        called_text = called_body["result"]["content"][0]["text"]
+        assert "fast_context" in called_text or "route:" in called_text
+        hidden = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 4,
                 "method": "tools/call",
                 "params": {
                     "name": "route_preview",
@@ -311,11 +342,8 @@ def test_tools_list_and_session_get_delete(workspace: Path) -> None:
             },
             headers=session_headers,
         )
-        assert preview.status_code < 400, preview.text
-        preview_body = preview.json()
-        assert preview_body["result"]["isError"] is False
-        preview_text = preview_body["result"]["content"][0]["text"]
-        assert "route:" in preview_text
+        hidden_body = hidden.json()
+        assert hidden_body["result"]["isError"] is True
         deleted = client.delete("/mcp", headers=session_headers)
         assert deleted.status_code < 500
         missing = client.get("/mcp", headers=session_headers)

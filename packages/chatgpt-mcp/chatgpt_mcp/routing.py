@@ -48,10 +48,30 @@ SYMBOL_CUES = frozenset({
     "class",
 })
 
+CONTEXT_STOPWORDS = frozenset({
+    "are",
+    "is",
+    "was",
+    "were",
+    "be",
+    "been",
+    "does",
+    "do",
+    "did",
+    "uses",
+    "use",
+    "using",
+    "works",
+    "work",
+    "handled",
+    "handling",
+})
+
 ROUTING_ONLY_TERMS = (
     SEARCH_CUES
     | INSPECT_CUES
     | SYMBOL_CUES
+    | CONTEXT_STOPWORDS
     | frozenset({
         "code",
         "file",
@@ -108,7 +128,8 @@ def _extract_search_terms(prompt: str, tokens: tuple[str, ...]) -> tuple[str, ..
         preferred = [
             token
             for token in _tokenize_preview_text(prompt)
-            if _IDENTIFIER.match(token) or token.isalnum()
+            if token not in ROUTING_ONLY_TERMS
+            and (_IDENTIFIER.match(token) or token.isalnum())
         ]
     return tuple(preferred[:6])
 

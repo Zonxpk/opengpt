@@ -150,74 +150,83 @@ BATCH_SPECS: tuple[ToolSpec, ...] = (
     ),
 )
 
-ROUTE_SPECS: tuple[ToolSpec, ...] = (
-    ToolSpec(
-        "route_preview",
-        None,
-        True,
-        description="Preview the zero-LLM OpenGPT route selected for a coding prompt. Does not access files.",
-        schema=ROUTE_PREVIEW_SCHEMA,
+ROUTE_PREVIEW_SPEC = ToolSpec(
+    "route_preview",
+    None,
+    True,
+    description="Preview the zero-LLM OpenGPT route selected for a coding prompt. Does not access files.",
+    schema=ROUTE_PREVIEW_SCHEMA,
+)
+
+FAST_CONTEXT_SPEC = ToolSpec(
+    "fast_context",
+    None,
+    True,
+    description=(
+        "Use this FIRST when the relevant repository files are not yet known: "
+        "locating implementations, tracing flows, understanding unfamiliar code, "
+        "or gathering context before editing. "
+        "Do not use when an exact file, regex search, or symbol query is already known."
     ),
-    ToolSpec(
-        "fast_context",
-        None,
-        True,
-        description=(
-            "Explore a coding question in one call using deterministic OpenHarness "
-            "search/read/LSP recipes. Prefer this for repository discovery before making edits."
-        ),
-        schema=FAST_CONTEXT_SCHEMA,
-    ),
+    schema=FAST_CONTEXT_SCHEMA,
 )
 
 SPECS: tuple[ToolSpec, ...] = (
+    FAST_CONTEXT_SPEC,
     *(spec for spec in OH_SPECS if spec.read_only),
     BATCH_SPECS[0],
-    *ROUTE_SPECS,
     *(spec for spec in OH_SPECS if not spec.read_only and spec.name != "bash"),
     BATCH_SPECS[1],
     next(spec for spec in OH_SPECS if spec.name == "bash"),
 )
 
+ROUTER_SPECS: tuple[ToolSpec, ...] = (
+    *(spec for spec in OH_SPECS if spec.read_only),
+    BATCH_SPECS[0],
+)
+
+
+def _entry_from_spec(spec: ToolSpec) -> dict[str, object]:
+    if spec.factory is not None:
+        tool = spec.factory()
+        schema = tool.input_model.model_json_schema()
+        description = tool.description
+    else:
+        schema = spec.schema or {}
+        description = spec.description or spec.name
+    required_args = sorted(schema.get("required", []))
+    optional_args = sorted(
+        key
+        for key in schema.get("properties", {})
+        if key not in required_args
+    )
+    return {
+        "name": spec.name,
+        "description": description,
+        "required_args": required_args,
+        "optional_args": optional_args,
+    }
+
 
 def routing_tool_entries() -> list[dict[str, object]]:
-    entries: list[dict[str, object]] = []
-    for spec in specs_for_mode("read"):
-        if spec.factory is not None:
-            tool = spec.factory()
-            schema = tool.input_model.model_json_schema()
-            description = tool.description
-        else:
-            schema = spec.schema or {}
-            description = spec.description or spec.name
-        required_args = sorted(schema.get("required", []))
-        optional_args = sorted(
-            key
-            for key in schema.get("properties", {})
-            if key not in required_args
-        )
-        entries.append(
-            {
-                "name": spec.name,
-                "description": description,
-                "required_args": required_args,
-                "optional_args": optional_args,
-            }
-        )
-    return entries
+    return [_entry_from_spec(spec) for spec in ROUTER_SPECS]
 
 
-def names_for_mode(mode: str) -> tuple[str, ...]:
+def names_for_mode(mode: str, *, debug_tools: bool = False) -> tuple[str, ...]:
+    production = tuple(spec.name for spec in SPECS if spec.read_only)
+    debug = (ROUTE_PREVIEW_SPEC.name,) if debug_tools else ()
     if mode == "read":
-        return tuple(spec.name for spec in SPECS if spec.read_only)
+        return production + debug
     if mode == "write":
-        return tuple(spec.name for spec in SPECS)
+        writes = tuple(spec.name for spec in SPECS if not spec.read_only)
+        return production + writes + debug
     raise ValueError(f"unknown mode: {mode}")
 
 
-def specs_for_mode(mode: str) -> tuple[ToolSpec, ...]:
-    allowed = set(names_for_mode(mode))
-    return tuple(spec for spec in SPECS if spec.name in allowed)
+def specs_for_mode(mode: str, *, debug_tools: bool = False) -> tuple[ToolSpec, ...]:
+    allowed = set(names_for_mode(mode, debug_tools=debug_tools))
+    catalog = SPECS + ((ROUTE_PREVIEW_SPEC,) if debug_tools else ())
+    return tuple(spec for spec in catalog if spec.name in allowed)
 
 
 def annotations_for(spec: ToolSpec) -> ToolAnnotations:

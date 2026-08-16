@@ -55,9 +55,11 @@ Running verification:               bash
 
 ## Tools
 
-Read mode: `read_file`, `glob`, `grep`, `lsp`, `read_many`, `route_preview`, `fast_context`.
+Read mode: `fast_context`, `read_file`, `glob`, `grep`, `lsp`, `read_many`.
 
 Write mode adds: `write_file`, `edit_file`, `apply_changes`, `bash`.
+
+`route_preview` is local-debug only (`opengpt-connect --debug-tools`). It is not in the production MCP catalog.
 
 Not exposed: agent/plan/image/MCP-client tools, cron, tasks, web, worktree, skills, and other OpenHarness extras.
 

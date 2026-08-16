@@ -22,10 +22,11 @@ _EXPLICIT_SETTINGS = Settings(
 
 
 class ToolAdapter:
-    def __init__(self, *, approved_root: Path, mode: str) -> None:
+    def __init__(self, *, approved_root: Path, mode: str, debug_tools: bool = False) -> None:
         self.approved_root = approved_root.resolve()
         self.mode = mode
-        self.allowed = set(names_for_mode(mode))
+        self.debug_tools = debug_tools
+        self.allowed = set(names_for_mode(mode, debug_tools=debug_tools))
         self._checker = PermissionChecker(_EXPLICIT_SETTINGS.permission)
         self._tools = {
             spec.name: spec.factory()

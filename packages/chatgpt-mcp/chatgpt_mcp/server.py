@@ -52,7 +52,7 @@ class OriginAndTokenMiddleware(BaseHTTPMiddleware):
 
 
 def build_mcp_server(adapter: ToolAdapter) -> Server[Any]:
-    specs = specs_for_mode(adapter.mode)
+    specs = specs_for_mode(adapter.mode, debug_tools=adapter.debug_tools)
     instances = {spec.name: spec.factory() for spec in specs if spec.factory is not None}
 
     async def on_list_tools(_ctx: Any, _params: Any) -> types.ListToolsResult:
@@ -110,8 +110,9 @@ def create_app(
     mode: str,
     token: str | None,
     json_response: bool = False,
+    debug_tools: bool = False,
 ) -> Starlette:
-    adapter = ToolAdapter(approved_root=approved_root, mode=mode)
+    adapter = ToolAdapter(approved_root=approved_root, mode=mode, debug_tools=debug_tools)
     mcp = build_mcp_server(adapter)
     path = mcp_path(token)
     tunneled = token is not None
